@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#15171c">
+<title>Racha 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Racing+Sans+One&family=Barlow:wght@600;800&display=swap">
+<style>
+:root{padding:0}
+/* Layout: full-bleed 3D chase view, HUD in the corners, pedals under the thumbs. Single committed asphalt-at-dusk look. */
+:root{
+  --ink:#f6f3ee;
+  --ink-dim:#cfc8bdcc;
+  --panel:#15171ce6;
+  --panel-2:#252831;
+  --hot:#ff3b30;
+  --cool:#2f8cff;
+  --volt:#ffd400;
+  --volt-ink:#1d1a00;
+  --display:"Racing Sans One","Arial Black",system-ui,sans-serif;
+  --body:"Barlow",system-ui,-apple-system,sans-serif;
+  color-scheme:dark;
+}
+html,body{height:100%}
+[hidden]{display:none!important}
+body{margin:0;background:#15171c;color:var(--ink);font-family:var(--body);overflow:hidden;
+  -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+#game{position:fixed;inset:0;touch-action:none}
+#game canvas{display:block;width:100%;height:100%}
+
+/* HUD */
+.hud{position:absolute;pointer-events:none;text-shadow:0 2px 6px #000c}
+#hudL{top:calc(env(safe-area-inset-top,0px) + 12px);left:16px;display:flex;flex-direction:column;gap:2px}
+#lap{font-family:var(--display);font-size:26px;line-height:1}
+#clock{font-weight:800;font-size:16px;font-variant-numeric:tabular-nums;color:var(--ink-dim)}
+#hudR{top:calc(env(safe-area-inset-top,0px) + 12px);right:16px;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+#pos{font-family:var(--display);font-size:44px;line-height:.9}
+#pos small{font-size:20px}
+#mini{width:104px;height:104px;border-radius:12px;background:#0007}
+#speed{left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 10px);text-align:center}
+#speed b{display:block;font-family:var(--display);font-size:40px;line-height:1;font-variant-numeric:tabular-nums}
+#speed span{font-size:11px;font-weight:800;letter-spacing:.16em;color:var(--ink-dim)}
+#count{inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:120px;color:var(--volt)}
+#toast{top:30%;left:50%;transform:translateX(-50%);font-weight:800;font-size:16px;background:#000a;padding:8px 14px;border-radius:99px;white-space:nowrap;transition:opacity .4s}
+
+/* Pedals */
+.pad{position:absolute;bottom:calc(env(safe-area-inset-bottom,0px) + 16px);display:flex;gap:10px;align-items:flex-end}
+#padL{left:14px} #padR{right:14px}
+.pb{width:76px;height:76px;border-radius:20px;border:2px solid #ffffff30;background:#0009;color:var(--ink);
+  font:800 26px var(--body);display:flex;align-items:center;justify-content:center;touch-action:none;cursor:pointer}
+.pb.gas{height:118px;background:#1f3a12cc;border-color:#7be04a80;font-size:15px;letter-spacing:.08em}
+.pb.brk{font-size:13px;letter-spacing:.08em;background:#3a1212cc;border-color:#ff6b6b70}
+.pb.on{background:#ffffff40}
+
+/* Panels */
+.ov{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding-inline:16px;background:#0b0c10b0;z-index:5;overflow-y:auto}
+.card{width:min(400px,100%);background:var(--panel);border-radius:22px;padding:24px 20px;display:flex;flex-direction:column;gap:12px;text-align:center;box-shadow:0 20px 60px #000a;margin-block:16px;box-sizing:border-box}
+.card h1{font-family:var(--display);font-weight:400;font-size:46px;line-height:1;margin:0;color:var(--volt);font-style:italic}
+.card h2{font-family:var(--display);font-weight:400;font-size:32px;margin:0;line-height:1.05;text-wrap:balance}
+.card p{margin:0;color:var(--ink-dim);font-size:15px;line-height:1.45}
+.card .small{font-size:13px}
+.btn{font:800 17px var(--body);border:0;border-radius:14px;padding:14px 18px;cursor:pointer;color:var(--volt-ink);background:var(--volt);letter-spacing:.02em}
+.btn.alt{background:var(--panel-2);color:var(--ink)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn:focus-visible,.pb:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+#qr{align-self:center;background:#fff;padding:12px;border-radius:14px;line-height:0}
+#qr img,#qr canvas{width:188px!important;height:188px!important}
+.code{font-family:var(--display);font-size:34px;letter-spacing:.18em;color:var(--ink)}
+.status{display:flex;align-items:center;justify-content:center;gap:8px;font-weight:800;font-size:15px}
+.dot{width:10px;height:10px;border-radius:50%;background:#777}
+.dot.ok{background:#4ade80;box-shadow:0 0 10px #4ade80}
+.joinrow{display:flex;gap:8px}
+.joinrow input{flex:1;min-width:0;font:800 20px var(--body);letter-spacing:.2em;text-transform:uppercase;text-align:center;
+  background:var(--panel-2);color:var(--ink);border:2px solid #ffffff20;border-radius:14px;padding:10px}
+.res{display:grid;grid-template-columns:1fr auto;gap:6px 14px;text-align:left;font-weight:800;font-variant-numeric:tabular-nums;background:#ffffff0d;border-radius:14px;padding:12px 14px}
+.res span:nth-child(even){text-align:right}
+.swatch{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:middle}
+</style>
+</head>
+<body>
+
+<div id="game"></div>
+
+<div class="hud" id="hudL" hidden><div id="lap">Volta 1/3</div><div id="clock">0:00.0</div></div>
+<div class="hud" id="hudR" hidden><div id="pos">1<small>º</small></div><canvas id="mini" width="208" height="208"></canvas></div>
+<div class="hud" id="speed" hidden><b id="kmh">0</b><span>KM/H</span></div>
+<div class="hud" id="count" hidden></div>
+<div class="hud" id="toast" style="opacity:0"></div>
+
+<div class="pad" id="padL" hidden>
+  <button class="pb" id="bL" type="button" aria-label="Virar à esquerda">◀</button>
+  <button class="pb" id="bR" type="button" aria-label="Virar à direita">▶</button>
+</div>
+<div class="pad" id="padR" hidden>
+  <button class="pb brk" id="bB" type="button">FREIO</button>
+  <button class="pb gas" id="bG" type="button">ACELERA</button>
+</div>
+
+<div class="ov" id="menu">
+  <div class="card">
+    <h1>Racha 3D</h1>
+    <p>Três voltas no circuito do Morro Verde. Fora do asfalto o carro perde velocidade.</p>
+    <button class="btn" id="mSolo" type="button">Correr contra o computador</button>
+    <button class="btn alt" id="mHost" type="button">Desafiar alguém (QR code)</button>
+    <div class="joinrow">
+      <input id="codeIn" maxlength="4" placeholder="CÓDIGO" autocomplete="off" aria-label="Código da sala">
+      <button class="btn alt" id="mJoin" type="button">Entrar</button>
+    </div>
+    <p class="small">No celular: ◀ ▶ para virar, ACELERA e FREIO à direita. No computador: setas ou WASD.</p>
+  </div>
+</div>
+
+<div class="ov" id="lobby" hidden>
+  <div class="card">
+    <h2 id="lbTitle">Sala de corrida</h2>
+    <div id="qrBox">
+      <p>Peça para a outra pessoa apontar a câmera do celular para o código:</p>
+    </div>
+    <div id="qr"></div>
+    <div class="code" id="lbCode">----</div>
+    <p class="small" id="lbHelp">Ela também pode abrir esta mesma página e digitar o código acima.</p>
+    <div class="status"><span class="dot" id="lbDot"></span><span id="lbStatus">Conectando…</span></div>
+    <button class="btn" id="lbGo" type="button" disabled>Largar!</button>
+    <button class="btn alt" id="lbBack" type="button">Voltar</button>
+  </div>
+</div>
+
+<div class="ov" id="result" hidden>
+  <div class="card">
+    <h2 id="rsTitle">Você venceu!</h2>
+    <div class="res" id="rsTable"></div>
+    <p class="small" id="rsNote"></p>
+    <button class="btn" id="rsAgain" type="button">Correr de novo</button>
+    <button class="btn alt" id="rsMenu" type="button">Menu</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+(() => {
+const ART_URL = location.origin + location.pathname;
+const $ = id => document.getElementById(id);
+const LAPS = 3, N = 800, HW = 9, MAXV = 62, GRASSV = 22;
+
+/* ---------- pista (fixa, igual em todos os celulares) ---------- */
+const PTS = [[0,0],[160,-10],[290,40],[330,150],[260,240],[150,215],[90,290],[-40,330],[-200,280],[-280,170],[-230,60],[-130,80],[-80,10]];
+const curve = new THREE.CatmullRomCurve3(PTS.map(([x, z]) => new THREE.Vector3(x * 1.25, 0, z * 1.25)), true, 'centripetal');
+const S = curve.getSpacedPoints(N).slice(0, N);
+const T = S.map((p, i) => { const a = S[(i + N - 1) % N], b = S[(i + 1) % N]; return new THREE.Vector3(b.x - a.x, 0, b.z - a.z).normalize(); });
+const NRM = T.map(t => new THREE.Vector3(-t.z, 0, t.x));
+const SPACING = curve.getLength() / N;
+const CURV = T.map((t, i) => { const a = T[(i + N - 12) % N], b = T[(i + 12) % N]; return Math.acos(Math.max(-1, Math.min(1, a.x * b.x + a.z * b.z))); });
+const heading = i => Math.atan2(T[i].x, T[i].z);
+
+function nearest(x, z, hint) {
+  let best = 0, bd = Infinity;
+  const all = hint == null || hint < 0, R = all ? N : 45;
+  for (let k = -R; k < R; k++) {
+    const i = all ? (k + N) % N : (hint + k + N) % N;
+    const dx = S[i].x - x, dz = S[i].z - z, d = dx * dx + dz * dz;
+    if (d < bd) { bd = d; best = i; }
+    if (all && k >= N - R - 1) break;
+  }
+  return { i: best, d: Math.sqrt(bd) };
+}
+
+/* ---------- cena ---------- */
+let rand = (() => { let s = 1234567; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+$('game').appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#f0a46a');
+scene.fog = new THREE.Fog('#f0a46a', 120, 520);
+const cam = new THREE.PerspectiveCamera(65, 1, 0.5, 900);
+scene.add(new THREE.HemisphereLight('#ffe6c7', '#3b5a2b', 0.85));
+const sun = new THREE.DirectionalLight('#fff1d6', 0.75); sun.position.set(-150, 200, 80); scene.add(sun);
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h);
+  cam.aspect = w / h; cam.fov = w < h ? 78 : 62; cam.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize); resize();
+
+// chão
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000), new THREE.MeshLambertMaterial({ color: '#5f9a43' }));
+ground.rotation.x = -Math.PI / 2; scene.add(ground);
+
+function strip(inner, outer, y, colorFn, every) {
+  const pos = [], col = [], idx = [];
+  for (let i = 0; i < N; i++) {
+    const p = S[i], n = NRM[i];
+    pos.push(p.x + n.x * inner, y, p.z + n.z * inner, p.x + n.x * outer, y, p.z + n.z * outer);
+    const c = new THREE.Color(colorFn(Math.floor(i / every)));
+    col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+    const a = i * 2, b = ((i + 1) % N) * 2;
+    idx.push(a, b, a + 1, a + 1, b, b + 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx); g.computeVertexNormals();
+  const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+  scene.add(m);
+}
+strip(-HW, HW, 0.03, () => '#3b3c44', 1);
+strip(HW, HW + 1.6, 0.05, k => k % 2 ? '#ffffff' : '#e3262e', 5);
+strip(-HW - 1.6, -HW, 0.05, k => k % 2 ? '#ffffff' : '#e3262e', 5);
+// faixa central tracejada
+{
+  const pos = [], idx = [];
+  let q = 0;
+  for (let i = 0; i < N; i += 10) {
+    for (let j = 0; j < 4; j++) {
+      const p = S[(i + j) % N], n = NRM[(i + j) % N];
+      pos.push(p.x + n.x * 0.25, 0.06, p.z + n.z * 0.25, p.x - n.x * 0.25, 0.06, p.z - n.z * 0.25);
+    }
+    for (let j = 0; j < 3; j++) { const a = q + j * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    q += 8;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+  scene.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: '#e9e6dc', side: THREE.DoubleSide })));
+}
+// linha de chegada xadrez
+{
+  const c = document.createElement('canvas'); c.width = 64; c.height = 16;
+  const x = c.getContext('2d');
+  for (let i = 0; i < 16; i++) for (let j = 0; j < 4; j++) { x.fillStyle = (i + j) % 2 ? '#111' : '#fff'; x.fillRect(i * 4, j * 4, 4, 4); }
+  const tex = new THREE.CanvasTexture(c); tex.magFilter = THREE.NearestFilter;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(HW * 2, 3), new THREE.MeshBasicMaterial({ map: tex }));
+  m.rotation.x = -Math.PI / 2; m.rotation.z = heading(0) + Math.PI / 2;
+  m.position.set(S[0].x, 0.07, S[0].z); scene.add(m);
+  // pórtico
+  const postM = new THREE.MeshLambertMaterial({ color: '#2a2c33' });
+  [1, -1].forEach(sd => {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.8, 9, 0.8), postM);
+    post.position.set(S[0].x + NRM[0].x * (HW + 2.5) * sd, 4.5, S[0].z + NRM[0].z * (HW + 2.5) * sd); scene.add(post);
+  });
+  const ban = new THREE.Mesh(new THREE.BoxGeometry((HW + 2.5) * 2 + 0.8, 2, 0.6), new THREE.MeshLambertMaterial({ color: '#ffd400' }));
+  ban.position.set(S[0].x, 9, S[0].z); ban.rotation.y = heading(0); scene.add(ban);
+}
+// árvores
+{
+  const spots = [];
+  for (let k = 0; k < 900 && spots.length < 280; k++) {
+    const x = -480 + rand() * 960, z = -220 + rand() * 720;
+    let ok = true;
+    for (let i = 0; i < N; i += 3) { const dx = S[i].x - x, dz = S[i].z - z; if (dx * dx + dz * dz < (HW + 9) ** 2) { ok = false; break; } }
+    if (ok) spots.push([x, z, 0.7 + rand() * 0.9]);
+  }
+  const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.35, 0.5, 3, 6), new THREE.MeshLambertMaterial({ color: '#6b4a2f' }), spots.length);
+  const leaf = new THREE.InstancedMesh(new THREE.ConeGeometry(2.6, 7, 7), new THREE.MeshLambertMaterial({ color: '#2f6b35' }), spots.length);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3();
+  spots.forEach(([x, z, s], i) => {
+    sc.set(s, s, s);
+    ps.set(x, 1.5 * s, z); m.compose(ps, q, sc); trunk.setMatrixAt(i, m);
+    ps.set(x, 6 * s, z); m.compose(ps, q, sc); leaf.setMatrixAt(i, m);
+  });
+  scene.add(trunk, leaf);
+  // morros ao longe
+  const hillM = new THREE.MeshLambertMaterial({ color: '#7d6a8f' });
+  for (let k = 0; k < 14; k++) {
+    const a = k / 14 * Math.PI * 2, r = 600 + rand() * 120;
+    const h = new THREE.Mesh(new THREE.ConeGeometry(90 + rand() * 80, 80 + rand() * 90, 6), hillM);
+    h.position.set(30 + Math.cos(a) * r, 30, 150 + Math.sin(a) * r); scene.add(h);
+  }
+}
+
+function makeCar(color) {
+  const g = new THREE.Group();
+  const paint = new THREE.MeshLambertMaterial({ color });
+  const dark = new THREE.MeshLambertMaterial({ color: '#1b1d24' });
+  const glass = new THREE.MeshLambertMaterial({ color: '#9fd3ff' });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.7, 4.4), paint); body.position.y = 0.75; g.add(body);
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.4, 1.2), paint); nose.position.set(0, 0.6, 2.4); g.add(nose);
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.65, 1.9), dark); cab.position.set(0, 1.4, -0.3); g.add(cab);
+  const ws = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 0.1), glass); ws.position.set(0, 1.4, 0.68); ws.rotation.x = -0.35; g.add(ws);
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.12, 0.6), dark); wing.position.set(0, 1.45, -2.05); g.add(wing);
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.02, 4.42), new THREE.MeshLambertMaterial({ color: '#ffffff' })); stripe.position.set(0, 1.11, 0); g.add(stripe);
+  const wheelG = new THREE.CylinderGeometry(0.48, 0.48, 0.45, 12); wheelG.rotateZ(Math.PI / 2);
+  const wheels = [];
+  [[1.15, 1.45], [-1.15, 1.45], [1.15, -1.45], [-1.15, -1.45]].forEach(([x, z], i) => {
+    const piv = new THREE.Group(); piv.position.set(x, 0.48, z);
+    piv.add(new THREE.Mesh(wheelG, dark)); g.add(piv); wheels.push(piv);
+  });
+  const sh = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 5), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.35 }));
+  sh.rotation.x = -Math.PI / 2; sh.position.y = 0.08; g.add(sh);
+  g.userData.wheels = wheels;
+  scene.add(g);
+  return g;
+}
+const COLORS = { red: '#e8352b', blue: '#2a7fff', cpu: '#f2b705' };
+const meMesh = makeCar(COLORS.red), oppMesh = makeCar(COLORS.blue);
+
+/* ---------- estado ---------- */
+let mode = 'menu';            // menu | solo | net
+let phase = 'idle';           // idle | count | race | done
+let me, opp, countT = 0, raceT = 0, myColor = 'red', oppColor = 'blue', lane = 1;
+const input = { l: 0, r: 0, g: 0, b: 0 };
+
+function newCar(laneSide) {
+  const i = N - 12, p = S[i], n = NRM[i];
+  return { x: p.x + n.x * 3.6 * laneSide, z: p.z + n.z * 3.6 * laneSide, h: heading(i), v: 0, steer: 0, idx: i, lap: 0, half: true, prog: -12, fin: null };
+}
+function updateProg(c) {
+  const prev = c.idx;
+  const nr = nearest(c.x, c.z, c.idx);
+  c.idx = nr.i; c.off = nr.d;
+  if (c.idx > N * 0.45 && c.idx < N * 0.55) c.half = true;
+  if (prev > N * 0.85 && c.idx < N * 0.15 && c.half) { c.lap++; c.half = false; if (c.lap >= 2 && c.lap <= LAPS) toast('Volta ' + c.lap + ' de ' + LAPS); }
+  if (prev < N * 0.15 && c.idx > N * 0.85 && c.lap > 0) { c.lap--; c.half = true; }
+  c.prog = c.lap === 0 ? (c.idx > N / 2 ? c.idx - N : c.idx) : (c.lap - 1) * N + c.idx;
+}
+function drive(c, dt) {
+  const steerIn = input.l - input.r;
+  c.steer += (steerIn - c.steer) * Math.min(1, dt * 7);
+  const off = c.off > HW + 1.2;
+  const top = off ? GRASSV : MAXV;
+  if (input.g) c.v += (c.v < 0 ? 60 : 38 * (1 - Math.max(0, c.v) / (MAXV * 1.05))) * dt;
+  if (input.b) c.v -= (c.v > 0 ? 55 : 14) * dt;
+  if (!input.g && !input.b) c.v -= Math.sign(c.v) * Math.min(Math.abs(c.v), 9 * dt);
+  if (c.v > top) c.v -= (c.v - top) * 2.5 * dt;
+  c.v = Math.max(-12, c.v);
+  const grip = Math.max(-1, Math.min(1, c.v / 14)) * (1 - 0.32 * Math.min(1, Math.abs(c.v) / MAXV));
+  c.h += c.steer * 1.85 * grip * dt;
+  c.x += Math.sin(c.h) * c.v * dt; c.z += Math.cos(c.h) * c.v * dt;
+  // limites do mundo
+  c.x = Math.max(-520, Math.min(560, c.x)); c.z = Math.max(-260, Math.min(560, c.z));
+  updateProg(c);
+}
+
+/* ---------- computador ---------- */
+function newCpu() { return { s: -12, v: 0, lane: -3.6, prog: -12, fin: null, x: 0, z: 0, h: 0 }; }
+function driveCpu(c, dt) {
+  const i = ((Math.floor(c.s) % N) + N) % N;
+  let look = 0; for (let k = 0; k < 40; k += 4) look = Math.max(look, CURV[(i + k) % N]);
+  let target = 57 - 24 * Math.min(1, look / 0.9);
+  const gap = me.prog - c.s;
+  target *= 1 + Math.max(-0.08, Math.min(0.08, gap / 600));
+  c.v += Math.max(-40 * dt, Math.min(26 * dt, target - c.v));
+  c.s += c.v * dt / SPACING;
+  c.lane += (Math.sin(c.s / 90) * 2.5 - c.lane) * dt * 0.4;
+  const j = ((Math.floor(c.s) % N) + N) % N, f = c.s - Math.floor(c.s), j2 = (j + 1) % N;
+  const px = S[j].x + (S[j2].x - S[j].x) * f, pz = S[j].z + (S[j2].z - S[j].z) * f;
+  c.x = px + NRM[j].x * c.lane; c.z = pz + NRM[j].z * c.lane;
+  c.h = Math.atan2(T[j].x + (T[j2].x - T[j].x) * f, T[j].z + (T[j2].z - T[j].z) * f);
+  c.prog = c.s;
+  if (c.fin == null && c.s >= LAPS * N) c.fin = raceT;
+}
+
+/* ---------- rede ---------- */
+let sala = null, salaCode = '', isHost = false, curEpoch = 0, myEpoch = 0, oppPeer = null, offPeers = null, lastSend = 0;
+
+function code4() { const a = 'abcdefghjkmnpqrstuvwxyz23456789'; let s = ''; for (let i = 0; i < 4; i++) s += a[Math.floor(Math.random() * a.length)]; return s; }
+// Conexão direta entre os dois celulares (PeerJS / WebRTC), sem login.
+function openSala(code) {
+  return new Promise(res => {
+    if (!window.Peer) return res(null);
+    let mine = {}, theirs = null, conn = null, subs = [], done = false, retry = null, peer;
+    const fire = () => subs.slice().forEach(f => { try { f(); } catch (e) {} });
+    const api = {
+      presence: async p => {
+        Object.assign(mine, p);
+        for (const k in mine) if (mine[k] === null) delete mine[k];
+        if (conn && conn.open) { try { conn.send({ t: 'p', pr: mine }); } catch (e) {} }
+      },
+      peers: () => theirs ? [{ sameTab: true, presence: mine }, { sameTab: false, presence: theirs }] : [{ sameTab: true, presence: mine }],
+      onPeers: fn => { subs.push(fn); setTimeout(fn, 0); return () => { subs = subs.filter(f => f !== fn); }; },
+      leave: () => { clearInterval(retry); try { peer.destroy(); } catch (e) {} }
+    };
+    const wire = c => {
+      if (conn && conn.open && conn !== c) { try { c.close(); } catch (e) {} return; }
+      conn = c;
+      c.on('open', () => { try { c.send({ t: 'p', pr: mine }); } catch (e) {} });
+      c.on('data', d => { if (d && d.t === 'p' && d.pr && typeof d.pr === 'object') { theirs = d.pr; fire(); } });
+      c.on('close', () => { if (conn === c) { conn = null; theirs = null; fire(); } });
+      c.on('error', () => {});
+    };
+    const finish = v => { if (!done) { done = true; res(v); } };
+    try { peer = isHost ? new Peer('racha3d-' + code) : new Peer(); } catch (e) { return res(null); }
+    peer.on('open', () => {
+      if (!isHost) {
+        const tryConnect = () => { if (!conn || !conn.open) wire(peer.connect('racha3d-' + code, { reliable: true })); };
+        tryConnect();
+        retry = setInterval(tryConnect, 4000);
+      }
+      finish(api);
+    });
+    if (isHost) peer.on('connection', wire);
+    peer.on('disconnected', () => { try { peer.reconnect(); } catch (e) {} });
+    peer.on('error', e => {
+      if (e && e.type === 'unavailable-id') { finish('taken'); return; }
+      if (e && e.type === 'peer-unavailable') { if (mode === 'net' && !theirs) $('lbStatus').textContent = 'Procurando a sala ' + code.toUpperCase() + '…'; return; }
+      finish(null);
+    });
+    setTimeout(() => finish(null), 12000);
+  });
+}
+function num(v) { return typeof v === 'number' && Number.isFinite(v) ? v : null; }
+function readOpp() {
+  if (!sala) return null;
+  const p = sala.peers().find(x => !x.sameTab && x.presence && (x.presence.role === 'host' || x.presence.role === 'guest'));
+  return p || null;
+}
+function onRoom() {
+  const p = readOpp();
+  const had = !!oppPeer;
+  oppPeer = p;
+  if (mode !== 'net') return;
+  if (!p && had && phase !== 'idle') toast('O adversário saiu da sala');
+  lobbyStatus();
+  if (p) {
+    const pr = p.presence;
+    const e = num(pr.epoch) || 0;
+    if (e > curEpoch && e > myEpoch) { myEpoch = e; sala.presence({ epoch: e }).catch(() => {}); startRace(e); }
+    const c = pr.car;
+    if (c && opp && opp.net) {
+      const x = num(c.x), z = num(c.z), h = num(c.h), v = num(c.v), pg = num(c.p);
+      if (x != null && z != null && h != null) { opp.tx = x; opp.tz = z; opp.th = h; opp.v = v || 0; opp.prog = pg != null ? pg : opp.prog; opp.at = performance.now(); if (!opp.seen) { opp.x = x; opp.z = z; opp.h = h; opp.seen = true; } }
+      if (num(pr.fin) != null && num(c.ep) === curEpoch) opp.fin = num(pr.fin);
+    }
+  }
+}
+async function host() {
+  isHost = true; salaCode = code4(); myColor = 'red'; oppColor = 'blue'; lane = 1;
+  await enterLobby();
+}
+async function joinCode(code) {
+  code = (code || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 4);
+  if (code.length !== 4) { toast('O código tem 4 letras'); return; }
+  isHost = false; salaCode = code; myColor = 'blue'; oppColor = 'red'; lane = -1;
+  await enterLobby();
+}
+async function enterLobby() {
+  mode = 'net'; phase = 'idle'; curEpoch = 0; myEpoch = 0; oppPeer = null;
+  show('lobby');
+  $('lbCode').textContent = salaCode.toUpperCase();
+  $('lbTitle').textContent = isHost ? 'Sua sala de corrida' : 'Sala ' + salaCode.toUpperCase();
+  $('qrBox').hidden = !isHost || !ART_URL; $('qr').hidden = !isHost || !ART_URL;
+  $('lbHelp').textContent = isHost
+    ? (ART_URL ? 'Ou ela abre esta mesma página e digita o código acima.' : 'A outra pessoa abre esta mesma página e digita o código acima.')
+    : 'Quando os dois estiverem na sala, qualquer um pode largar.';
+  $('qr').innerHTML = '';
+  if (isHost && ART_URL && window.QRCode) {
+    try { new QRCode($('qr'), { text: ART_URL + '#sala-' + salaCode, width: 376, height: 376, colorDark: '#111111', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M }); } catch (e) {}
+  }
+  $('lbStatus').textContent = 'Conectando…'; $('lbDot').className = 'dot'; $('lbGo').disabled = true;
+  if (offPeers) { offPeers(); offPeers = null; }
+  if (sala) { try { sala.leave(); } catch (e) {} sala = null; }
+  sala = await openSala(salaCode);
+  if (sala === 'taken' && isHost) { sala = null; salaCode = code4(); return enterLobby(); }
+  if (!sala || sala === 'taken') {
+    sala = null;
+    $('lbStatus').textContent = 'Não consegui conectar';
+    $('lbHelp').textContent = 'Confira a internet e tente de novo. Enquanto isso, dá pra correr contra o computador.';
+    return;
+  }
+  try { await sala.presence({ role: isHost ? 'host' : 'guest', color: myColor, epoch: 0, car: null, fin: null }); } catch (e) {}
+  offPeers = sala.onPeers(onRoom);
+  lobbyStatus();
+}
+function lobbyStatus() {
+  if (mode !== 'net' || !sala) return;
+  const ok = !!oppPeer;
+  $('lbDot').className = 'dot' + (ok ? ' ok' : '');
+  $('lbStatus').textContent = ok ? 'Adversário na sala!' : (isHost ? 'Esperando a outra pessoa entrar…' : 'Esperando o dono da sala…');
+  $('lbGo').disabled = !ok;
+}
+function bumpEpoch() {
+  const theirs = oppPeer ? (num(oppPeer.presence.epoch) || 0) : 0;
+  const e = Math.max(curEpoch, myEpoch, theirs) + 1;
+  myEpoch = e;
+  sala.presence({ epoch: e, fin: null }).catch(() => {});
+  startRace(e);
+}
+function sendCar(now) {
+  if (!sala || now - lastSend < 60) return;
+  lastSend = now;
+  sala.presence({ car: { x: +me.x.toFixed(2), z: +me.z.toFixed(2), h: +me.h.toFixed(3), v: +me.v.toFixed(1), p: Math.round(me.prog), ep: curEpoch } }).catch(() => {});
+}
+
+/* ---------- corrida ---------- */
+function startRace(epoch) {
+  curEpoch = epoch || 0;
+  if (sala && mode === 'net') sala.presence({ fin: null }).catch(() => {});
+  me = newCar(lane);
+  updateProg(me);
+  if (mode === 'solo') { opp = newCpu(); driveCpu(opp, 0); opp.v = 0; }
+  else {
+    const o = newCar(-lane);
+    opp = { net: true, x: o.x, z: o.z, h: o.h, tx: o.x, tz: o.z, th: o.h, v: 0, prog: -12, fin: null, at: performance.now(), seen: false };
+  }
+  meMesh.children[0].material.color.set(COLORS[myColor]); meMesh.children[1].material.color.set(COLORS[myColor]);
+  oppMesh.children[0].material.color.set(COLORS[mode === 'solo' ? 'cpu' : oppColor]);
+  oppMesh.children[1].material.color.set(COLORS[mode === 'solo' ? 'cpu' : oppColor]);
+  oppMesh.visible = true;
+  phase = 'count'; countT = 3.2; raceT = 0;
+  show(null);
+  ['hudL', 'hudR', 'speed', 'padL', 'padR'].forEach(id => $(id).hidden = false);
+  snapCam();
+  beep(440, 0.15);
+}
+function finish() {
+  me.fin = raceT; phase = 'done';
+  if (sala && mode === 'net') sala.presence({ fin: +raceT.toFixed(2) }).catch(() => {});
+  beep(880, 0.4);
+  setTimeout(showResult, 900);
+}
+function fmt(t) { if (t == null) return '—'; const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1); }
+function showResult() {
+  if (phase !== 'done') return;
+  const oppName = mode === 'solo' ? 'Computador' : 'Adversário';
+  const oppFin = opp.fin;
+  const won = oppFin == null || me.fin <= oppFin;
+  $('rsTitle').textContent = won ? 'Você venceu!' : 'Você ficou em 2º';
+  $('rsTitle').style.color = won ? 'var(--volt)' : 'var(--ink)';
+  $('rsTable').innerHTML = '';
+  const row = (name, col, t) => {
+    const a = document.createElement('span'), b = document.createElement('span');
+    const sw = document.createElement('i'); sw.className = 'swatch'; sw.style.background = col;
+    a.append(sw, name); b.textContent = fmt(t); $('rsTable').append(a, b);
+  };
+  row('Você', COLORS[myColor], me.fin);
+  row(oppName, COLORS[mode === 'solo' ? 'cpu' : oppColor], oppFin);
+  $('rsNote').textContent = oppFin == null ? (mode === 'net' ? 'O adversário ainda está na pista.' : 'Você cruzou a linha antes do computador.') : '';
+  show('result');
+  $('rsAgain').disabled = mode === 'net' && !oppPeer;
+}
+
+/* ---------- câmera e laço ---------- */
+const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
+function camTarget(out, look) {
+  const fx = Math.sin(me.h), fz = Math.cos(me.h);
+  out.set(me.x - fx * 11, 4.6, me.z - fz * 11);
+  look.set(me.x + fx * 8, 1.2, me.z + fz * 8);
+}
+function snapCam() { camTarget(camPos, camLook); cam.position.copy(camPos); cam.lookAt(camLook); }
+const tmpP = new THREE.Vector3(), tmpL = new THREE.Vector3();
+
+function placeCar(mesh, c, dt) {
+  mesh.position.set(c.x, 0, c.z);
+  mesh.rotation.y = c.h;
+  const w = mesh.userData.wheels;
+  w[0].rotation.y = w[1].rotation.y = (c.steer || 0) * 0.45;
+  const spin = (c.v || 0) * dt / 0.48;
+  w.forEach(p => p.children[0].rotation.x += spin);
+}
+
+// minimapa
+const mini = $('mini'), mx = mini.getContext('2d');
+let bx0 = Infinity, bx1 = -Infinity, bz0 = Infinity, bz1 = -Infinity;
+S.forEach(p => { bx0 = Math.min(bx0, p.x); bx1 = Math.max(bx1, p.x); bz0 = Math.min(bz0, p.z); bz1 = Math.max(bz1, p.z); });
+const msc = 180 / Math.max(bx1 - bx0, bz1 - bz0);
+const mpx = x => 104 + (x - (bx0 + bx1) / 2) * msc * -1, mpz = z => 104 - (z - (bz0 + bz1) / 2) * msc;
+function drawMini() {
+  mx.clearRect(0, 0, 208, 208);
+  mx.strokeStyle = '#ffffffb0'; mx.lineWidth = 7; mx.lineJoin = 'round';
+  mx.beginPath(); S.forEach((p, i) => i ? mx.lineTo(mpx(p.x), mpz(p.z)) : mx.moveTo(mpx(p.x), mpz(p.z))); mx.closePath(); mx.stroke();
+  const dot = (c, col, r) => { mx.fillStyle = col; mx.strokeStyle = '#000'; mx.lineWidth = 3; mx.beginPath(); mx.arc(mpx(c.x), mpz(c.z), r, 0, 7); mx.fill(); mx.stroke(); };
+  if (opp && oppMesh.visible) dot(opp, COLORS[mode === 'solo' ? 'cpu' : oppColor], 9);
+  dot(me, COLORS[myColor], 11);
+}
+
+let last = performance.now(), hudT = 0;
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, 1 / 20); last = now;
+  if (me) {
+    if (phase === 'count') {
+      const before = Math.ceil(countT);
+      countT -= dt;
+      const n = Math.ceil(countT);
+      $('count').hidden = false;
+      if (countT > 0.2) $('count').textContent = Math.min(3, n);
+      else $('count').textContent = 'VAI!';
+      if (n !== before && n > 0 && n <= 3) beep(440, 0.15);
+      if (countT <= 0) { phase = 'race'; beep(880, 0.3); setTimeout(() => { if (phase !== 'count') $('count').hidden = true; }, 700); }
+    }
+    if (phase === 'race') {
+      raceT += dt;
+      drive(me, dt);
+      if (me.prog >= LAPS * N) finish();
+    } else if (phase === 'done') {
+      me.v *= Math.max(0, 1 - dt * 1.2);
+      me.x += Math.sin(me.h) * me.v * dt; me.z += Math.cos(me.h) * me.v * dt;
+    }
+    if (mode === 'solo' && opp && phase !== 'count') driveCpu(opp, dt);
+    if (mode === 'net' && opp && opp.net) {
+      const age = Math.min(0.25, (now - opp.at) / 1000);
+      const px = opp.tx + Math.sin(opp.th) * opp.v * age, pz = opp.tz + Math.cos(opp.th) * opp.v * age;
+      const k = Math.min(1, dt * 10);
+      opp.x += (px - opp.x) * k; opp.z += (pz - opp.z) * k;
+      let dh = opp.th - opp.h; while (dh > Math.PI) dh -= Math.PI * 2; while (dh < -Math.PI) dh += Math.PI * 2;
+      opp.h += dh * k;
+      oppMesh.visible = !!oppPeer;
+      sendCar(now);
+    }
+    placeCar(meMesh, me, dt);
+    if (opp) placeCar(oppMesh, opp, dt);
+    camTarget(tmpP, tmpL);
+    const k = Math.min(1, dt * 5);
+    camPos.lerp(tmpP, k); camLook.lerp(tmpL, Math.min(1, dt * 8));
+    cam.position.copy(camPos); cam.lookAt(camLook);
+
+    hudT += dt;
+    if (hudT > 0.08) {
+      hudT = 0;
+      $('lap').textContent = 'Volta ' + Math.max(1, Math.min(LAPS, me.lap)) + '/' + LAPS;
+      $('clock').textContent = fmt(raceT);
+      $('kmh').textContent = Math.round(Math.abs(me.v) * 3.6);
+      const ahead = me.fin != null ? (opp.fin == null || me.fin <= opp.fin) : opp.fin != null ? false : me.prog >= opp.prog;
+      $('pos').innerHTML = (oppMesh.visible ? (ahead ? 1 : 2) : 1) + '<small>º</small>';
+      drawMini();
+    }
+  } else {
+    // vitrine no menu: câmera girando sobre a largada
+    const a = now / 6000;
+    cam.position.set(S[0].x + Math.cos(a) * 30, 12, S[0].z + Math.sin(a) * 30);
+    cam.lookAt(S[0].x, 1, S[0].z);
+    meMesh.position.set(S[0].x - T[0].x * 6 + NRM[0].x * 3.6, 0, S[0].z - T[0].z * 6 + NRM[0].z * 3.6); meMesh.rotation.y = heading(0);
+    oppMesh.position.set(S[0].x - T[0].x * 6 - NRM[0].x * 3.6, 0, S[0].z - T[0].z * 6 - NRM[0].z * 3.6); oppMesh.rotation.y = heading(0);
+  }
+  renderer.render(scene, cam);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------- som ---------- */
+let ac = null;
+function beep(f, d) {
+  try {
+    if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+    if (ac.state === 'suspended') ac.resume();
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'square'; o.frequency.value = f;
+    g.gain.setValueAtTime(0.06, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + d);
+    o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + d);
+  } catch (e) {}
+}
+
+/* ---------- interface ---------- */
+let toastT = null;
+function toast(t) { const el = $('toast'); el.textContent = t; el.style.opacity = 1; clearTimeout(toastT); toastT = setTimeout(() => el.style.opacity = 0, 1800); }
+function show(id) { ['menu', 'lobby', 'result'].forEach(x => $(x).hidden = x !== id); }
+function toMenu() {
+  if (offPeers) { offPeers(); offPeers = null; }
+  if (sala) { try { sala.leave(); } catch (e) {} sala = null; }
+  mode = 'menu'; phase = 'idle'; me = null; opp = null; oppPeer = null;
+  ['hudL', 'hudR', 'speed', 'padL', 'padR', 'count'].forEach(id => $(id).hidden = true);
+  oppMesh.visible = true;
+  show('menu');
+}
+function hold(id, key) {
+  const el = $(id);
+  const on = e => { e.preventDefault(); input[key] = 1; el.classList.add('on'); beep(1, 0.001); };
+  const off = () => { input[key] = 0; el.classList.remove('on'); };
+  el.addEventListener('pointerdown', on);
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => el.addEventListener(t, off));
+  el.addEventListener('contextmenu', e => e.preventDefault());
+}
+hold('bL', 'l'); hold('bR', 'r'); hold('bG', 'g'); hold('bB', 'b');
+const KEYS = { ArrowLeft: 'l', KeyA: 'l', ArrowRight: 'r', KeyD: 'r', ArrowUp: 'g', KeyW: 'g', ArrowDown: 'b', KeyS: 'b' };
+window.addEventListener('keydown', e => { if (KEYS[e.code] && e.target.tagName !== 'INPUT') { input[KEYS[e.code]] = 1; e.preventDefault(); } });
+window.addEventListener('keyup', e => { if (KEYS[e.code]) input[KEYS[e.code]] = 0; });
+
+$('mSolo').addEventListener('click', () => { mode = 'solo'; myColor = 'red'; lane = 1; startRace(0); });
+$('mHost').addEventListener('click', host);
+$('mJoin').addEventListener('click', () => joinCode($('codeIn').value));
+$('codeIn').addEventListener('keydown', e => { if (e.key === 'Enter') joinCode($('codeIn').value); });
+$('lbGo').addEventListener('click', bumpEpoch);
+$('lbBack').addEventListener('click', toMenu);
+$('rsMenu').addEventListener('click', toMenu);
+$('rsAgain').addEventListener('click', () => { if (mode === 'solo') startRace(0); else bumpEpoch(); });
+
+// chegou pelo QR code: entra direto na sala
+const m = /^#sala-([a-z0-9]{4})$/.exec(location.hash || '');
+if (m) joinCode(m[1]);
+})();
+</script>
+
+</body>
+</html>
