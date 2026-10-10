@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache">
 <title>Meus Processos</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
@@ -578,7 +579,8 @@
         : 'O banco de dados ainda não tem processos.<br>Peça para o Grok colar o JSON em <b>Atualizar dados</b>.';
       main.innerHTML = `<div class="empty"><div class="ghost">🫧</div><p>${msg}</p>
         ${sync.state === 'bad' ? '<button class="btn" type="button" id="retry">Tentar de novo</button>' : ''}</div>`;
-      if ($('retry')) $('retry').onclick = () => pull(true);
+      // Reload with a fresh query string so the browser and GitHub Pages cache can't serve an old copy of the page.
+      if ($('retry')) $('retry').onclick = () => location.replace(`${location.pathname}?v=${Date.now()}`);
       return;
     }
 
