@@ -119,146 +119,91 @@
   const trail = [];
 
   // ---------- audio ----------
-  // Star Wars style voice, after Ben Burtt's recipe: a projector-motor hum
-  // (low saw with rich harmonics, two motors beating against each other) plus
-  // a thin TV-interference buzz. A swing works like his mic passing the
-  // speaker: a Doppler bend (pitch up as the swing starts, down as it ends)
-  // and a volume swell.
-  const HUM_BASE = 92;
-  let ac, master, bus, humGain, hum1, hum2, hum3, humFilter, swooshGain, swooshFilter,
-      buzzGain, buzz, flutter, crackleGain, swingSlow = 0;
+  // Sword voice: silent at rest. Moving the blade cuts air (filtered noise
+  // whose volume and pitch follow the swing), a fast swing adds a crisp
+  // swish, clashes ring like steel, and igniting is the "shing" of a draw.
+  let ac, master, bus, airGain, airFilter, lastSwish = 0, prevSwing = 0;
   function noiseBuffer(sec) {
     const b = ac.createBuffer(1, ac.sampleRate * sec, ac.sampleRate);
     const d = b.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     return b;
   }
-  function driveCurve(k) {
-    const n = 2048, c = new Float32Array(n);
-    for (let i = 0; i < n; i++) { const x = i * 2 / n - 1; c[i] = (1 + k) * x / (1 + k * Math.abs(x)); }
-    return c;
-  }
   function initAudio() {
     if (ac) return;
     ac = new (window.AudioContext || window.webkitAudioContext)();
     ac.onstatechange = updateStatus;
+    // gentle levelling so it is loud without sounding crushed
     const comp = ac.createDynamicsCompressor();
-    comp.threshold.value = -24; comp.knee.value = 6; comp.ratio.value = 8;
-    comp.attack.value = 0.003; comp.release.value = 0.15;
-    // makeup gain pushes everything to the ceiling; a soft clipper keeps it from cracking
-    master = ac.createGain(); master.gain.value = 3;
-    const ceiling = ac.createWaveShaper(); ceiling.curve = driveCurve(3); ceiling.oversample = '4x';
-    const out = ac.createGain(); out.gain.value = 0.9;
-    comp.connect(master); master.connect(ceiling); ceiling.connect(out); out.connect(ac.destination);
-    // a little tube-like warmth, the motor hum was recorded on tape
-    const shaper = ac.createWaveShaper(); shaper.curve = driveCurve(4); shaper.oversample = '4x';
-    bus = ac.createGain(); bus.gain.value = 1.4;
-    bus.connect(shaper); shaper.connect(comp);
+    comp.threshold.value = -18; comp.knee.value = 10; comp.ratio.value = 4;
+    comp.attack.value = 0.005; comp.release.value = 0.2;
+    master = ac.createGain(); master.gain.value = 1.5;
+    comp.connect(master); master.connect(ac.destination);
+    bus = ac.createGain(); bus.gain.value = 1;
+    bus.connect(comp);
 
-    // motor hum: phone speakers can't play 92 Hz, but its harmonics carry the pitch
-    humFilter = ac.createBiquadFilter(); humFilter.type = 'lowpass'; humFilter.frequency.value = 1300; humFilter.Q.value = 2;
-    const presence = ac.createBiquadFilter(); presence.type = 'peaking'; presence.frequency.value = 280; presence.Q.value = 1; presence.gain.value = 8;
-    humGain = ac.createGain(); humGain.gain.value = 0;
-    hum1 = ac.createOscillator(); hum1.type = 'sawtooth'; hum1.frequency.value = HUM_BASE;
-    hum2 = ac.createOscillator(); hum2.type = 'sawtooth'; hum2.frequency.value = HUM_BASE * 1.006; // slow beating
-    hum3 = ac.createOscillator(); hum3.type = 'triangle'; hum3.frequency.value = HUM_BASE * 2.003;
-    const h3 = ac.createGain(); h3.gain.value = 0.5;
-    // the motor's wobble: a slow amplitude flutter
-    const flutterAmp = ac.createGain(); flutterAmp.gain.value = 1;
-    flutter = ac.createOscillator(); flutter.type = 'sine'; flutter.frequency.value = 6.5;
-    const flutterDepth = ac.createGain(); flutterDepth.gain.value = 0.12;
-    flutter.connect(flutterDepth); flutterDepth.connect(flutterAmp.gain);
-    hum1.connect(humFilter); hum2.connect(humFilter); hum3.connect(h3); h3.connect(humFilter);
-    humFilter.connect(presence); presence.connect(flutterAmp); flutterAmp.connect(humGain); humGain.connect(bus);
-
-    // TV interference: a thin, bright buzz riding on top
-    buzz = ac.createOscillator(); buzz.type = 'square'; buzz.frequency.value = HUM_BASE * 4;
-    const bf = ac.createBiquadFilter(); bf.type = 'bandpass'; bf.frequency.value = 1800; bf.Q.value = 2;
-    buzzGain = ac.createGain(); buzzGain.gain.value = 0;
-    buzz.connect(bf); bf.connect(buzzGain); buzzGain.connect(bus);
-    hum1.start(); hum2.start(); hum3.start(); flutter.start(); buzz.start();
-
+    // continuous air: silent until the blade moves
     const n = ac.createBufferSource(); n.buffer = noiseBuffer(2); n.loop = true;
-    swooshFilter = ac.createBiquadFilter(); swooshFilter.type = 'bandpass'; swooshFilter.frequency.value = 500; swooshFilter.Q.value = 0.9;
-    swooshGain = ac.createGain(); swooshGain.gain.value = 0;
-    n.connect(swooshFilter); swooshFilter.connect(swooshGain); swooshGain.connect(bus); n.start();
-
-    const cn = ac.createBufferSource(); cn.buffer = noiseBuffer(1.5); cn.loop = true;
-    const chp = ac.createBiquadFilter(); chp.type = 'highpass'; chp.frequency.value = 2500;
-    crackleGain = ac.createGain(); crackleGain.gain.value = 0;
-    cn.connect(chp); chp.connect(crackleGain); crackleGain.connect(bus); cn.start();
+    airFilter = ac.createBiquadFilter(); airFilter.type = 'bandpass'; airFilter.frequency.value = 500; airFilter.Q.value = 1.8;
+    airGain = ac.createGain(); airGain.gain.value = 0;
+    n.connect(airFilter); airFilter.connect(airGain); airGain.connect(bus); n.start();
   }
-  function noiseHit(t, dur, f0, f1, vol) {
+  function noiseSweep(t, dur, f0, fPeak, f1, vol, q) {
     const s = ac.createBufferSource(); s.buffer = noiseBuffer(dur + 0.05);
-    const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.4;
-    f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = q || 2.5;
+    f.frequency.setValueAtTime(f0, t);
+    f.frequency.exponentialRampToValueAtTime(fPeak, t + dur * 0.4);
+    f.frequency.exponentialRampToValueAtTime(f1, t + dur);
     const g = ac.createGain();
-    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    s.connect(f); f.connect(g); g.connect(bus); s.start(t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + dur * 0.35);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); f.connect(g); g.connect(bus); s.start(t); s.stop(t + dur + 0.05);
   }
-  // "SHHH-VMMM" on: the hum spins up like a motor, with a burst of static.
-  // Off: the hum winds down and chokes.
+  // steel ring: inharmonic partials with long, staggered decays
+  function ring(t, base, vol, decay) {
+    for (const [ratio, amp, dec] of [[1, 1, 1], [1.53, 0.6, 0.8], [2.38, 0.45, 0.6], [3.15, 0.3, 0.45], [4.21, 0.2, 0.3]]) {
+      const o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = base * ratio;
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol * amp, t + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + decay * dec);
+      o.connect(g); g.connect(bus); o.start(t); o.stop(t + decay * dec + 0.05);
+    }
+  }
+  // on: "shiiing" of drawing a blade; off: a short slide back into the sheath
   function igniteSound(up) {
     const t = ac.currentTime;
-    const dur = up ? 0.45 : 0.4;
-    const from = up ? 0.35 : 1, to = up ? 1 : 0.3;
-    for (const [o, mult] of [[hum1, 1], [hum2, 1.006], [hum3, 2.003]]) {
-      o.frequency.cancelScheduledValues(t);
-      o.frequency.setValueAtTime(HUM_BASE * mult * from, t);
-      o.frequency.exponentialRampToValueAtTime(HUM_BASE * mult * to, t + dur);
-    }
-    humGain.gain.cancelScheduledValues(t);
     if (up) {
-      humGain.gain.setValueAtTime(0.0001, t);
-      humGain.gain.exponentialRampToValueAtTime(0.9, t + 0.08);
-      humGain.gain.setTargetAtTime(0.55, t + 0.2, 0.15);
-      noiseHit(t, 0.4, 3500, 600, 0.5);
+      noiseSweep(t, 0.55, 2500, 6000, 8000, 0.35, 4);
+      ring(t + 0.4, 1350, 0.12, 1.2);
     } else {
-      humGain.gain.setValueAtTime(humGain.gain.value || 0.5, t);
-      humGain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      buzzGain.gain.setTargetAtTime(0, t, 0.05);
-      noiseHit(t, 0.3, 800, 2500, 0.25);
+      noiseSweep(t, 0.35, 6000, 3500, 2000, 0.25, 4);
+      airGain.gain.setTargetAtTime(0, t, 0.03);
     }
-    audioHoldUntil = performance.now() + dur * 1000 + 50;
   }
-  let audioHoldUntil = 0;
-  // blades meeting: a crackling "KSSHH" with a short metallic ring
+  // blades meeting: a bright "tiiing" with a hard click on the front
   function clashSound() {
     const t = ac.currentTime;
-    noiseHit(t, 0.5, 3000, 1200, 1.1);
-    for (const [f0, vol] of [[620, 0.35], [930, 0.25]]) {
-      const o = ac.createOscillator(); o.type = 'triangle'; o.frequency.setValueAtTime(f0, t);
-      o.frequency.exponentialRampToValueAtTime(f0 * 0.8, t + 0.35);
-      const og = ac.createGain(); og.gain.setValueAtTime(vol, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
-      o.connect(og); og.connect(bus); o.start(t); o.stop(t + 0.4);
-    }
-    for (let i = 0; i < 6; i++) {
-      const at = t + 0.03 + Math.random() * 0.3;
-      crackleGain.gain.setValueAtTime(0.5 * Math.random() + 0.2, at);
-      crackleGain.gain.setTargetAtTime(0, at + 0.01, 0.015);
-    }
+    noiseSweep(t, 0.06, 4000, 5000, 3000, 0.9, 1);
+    const base = 900 + Math.random() * 250;
+    ring(t, base, 0.45, 1.4);
+    ring(t + 0.002, base * 1.07, 0.2, 1.0);
   }
   function updateAudio() {
-    if (!ac || !on || performance.now() < audioHoldUntil) return;
+    if (!ac) return;
     const t = ac.currentTime;
-    // Doppler: the swing's rise bends pitch up, its fall bends it down
-    swingSlow += (swing - swingSlow) * 0.12;
-    const doppler = Math.max(-0.25, Math.min(0.3, (swing - swingSlow) * 1.4));
-    const pitch = 1 + doppler + swing * 0.08;
-    hum1.frequency.setTargetAtTime(HUM_BASE * pitch, t, 0.03);
-    hum2.frequency.setTargetAtTime(HUM_BASE * 1.006 * pitch, t, 0.03);
-    hum3.frequency.setTargetAtTime(HUM_BASE * 2.003 * pitch, t, 0.03);
-    buzz.frequency.setTargetAtTime(HUM_BASE * 4 * pitch, t, 0.03);
-    humFilter.frequency.setTargetAtTime(1300 + swing * 1800, t, 0.03);
-    humGain.gain.setTargetAtTime(0.55 + swing * 0.9, t, 0.03);
-    buzzGain.gain.setTargetAtTime(0.05 + swing * 0.08, t, 0.05);
-    swooshGain.gain.setTargetAtTime(swing * swing * 0.6, t, 0.04);
-    swooshFilter.frequency.setTargetAtTime(400 + swing * 900, t, 0.04);
-    // the odd crackle of an energy blade
-    if (Math.random() < 0.006 + swing * 0.02) {
-      crackleGain.gain.setValueAtTime(0.05 + Math.random() * 0.08, t);
-      crackleGain.gain.setTargetAtTime(0, t + 0.01, 0.015);
+    // dead zone so a steady hand stays silent
+    const s = on ? Math.max(0, (swing - 0.07) / 0.93) : 0;
+    airGain.gain.setTargetAtTime(Math.pow(s, 1.4) * 1.1, t, 0.025);
+    airFilter.frequency.setTargetAtTime(350 + s * 1700, t, 0.03);
+    // a fast swing gets its own crisp "fwip"
+    const now = performance.now();
+    if (on && swing > 0.4 && prevSwing <= 0.4 && now - lastSwish > 200) {
+      lastSwish = now;
+      noiseSweep(t, 0.28, 500, 1800 + swing * 1200, 600, 0.35 + swing * 0.4, 2.2);
     }
+    prevSwing = swing;
   }
 
   function clash(strength) {
