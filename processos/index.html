@@ -264,6 +264,18 @@
   }
   textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   .hint { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
+  .keybox { display: block; margin-top: 12px; font-size: 13px; font-weight: 700; }
+  .keybox small { color: var(--muted); font-weight: 500; }
+  .keybox input {
+    display: block; width: 100%; margin-top: 6px; padding: 11px 12px; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink); font-family: var(--mono); font-size: 14px;
+  }
+  .keybox[hidden] { display: none; }
+  .sync { display: inline-flex; align-items: center; gap: 5px; }
+  .sync::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .sync.ok::before { background: var(--ok); }
+  .sync.bad::before { background: var(--err); }
+  .sync.busy::before { background: var(--accent); animation: ping 1s ease-out infinite; }
   .linkish { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 700; cursor: pointer; font-size: 13px; }
 
   .report { margin-top: 14px; border-radius: 14px; padding: 12px 14px; font-size: 14px; line-height: 1.45; }
@@ -320,6 +332,10 @@
   <h3 id="pTitle">Atualizar dados</h3>
   <div class="hint">Cole aqui o JSON que o Grok gerou. Ele é conferido antes de entrar. <button class="linkish" type="button" id="fillExample">Colar um exemplo</button></div>
   <textarea id="json" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder='{ "version": 1, "generatedAt": "...", "processes": [ ... ] }'></textarea>
+  <label class="keybox" id="keyBox">
+    <span>Chave de acesso <small>(fica salva neste aparelho)</small></span>
+    <input id="keyInput" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="cole a chave aqui">
+  </label>
   <div id="report"></div>
   <div class="row">
     <button class="btn ghost" type="button" id="cancelPaste">Cancelar</button>
@@ -355,6 +371,9 @@
   const FIELDS = ['id', 'company', 'role', 'description', 'status', 'statusLabel', 'needsAttention', 'attentionNote', 'nextAt', 'link', 'updatedAt'];
 
   const STORE_KEY = 'processos.board.v1';
+  const KEY_KEY = 'processos.key';
+  // Shared copy lives in a Netlify function (processos-api/ in this repo), so every device sees the same board.
+  const API = 'https://meus-processos-api.netlify.app/api/board';
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -546,10 +565,10 @@
   function render() {
     const main = $('main');
     if (!board) {
-      $('meta').textContent = 'Sem dados ainda';
+      setMeta();
       $('chips').innerHTML = '';
       main.innerHTML = `<div class="empty"><div class="ghost">🫧</div>
-        <p>Nenhum processo por aqui ainda.<br>Toque em <b>Atualizar dados</b> e cole o JSON que o Grok mandou.</p>
+        <p>${getKey() ? 'Nenhum processo por aqui ainda.<br>Toque em <b>Atualizar dados</b> e cole o JSON que o Grok mandou.' : 'Este aparelho ainda não tem a chave de acesso.<br>Abra o link com a chave ou toque em <b>Atualizar dados</b> e cole a chave.'}</p>
         <button class="btn" type="button" id="demo">Ver com dados de exemplo</button></div>`;
       $('demo').onclick = () => { $('json').value = JSON.stringify(EXAMPLE, null, 2); openSheet('paste'); };
       return;
@@ -560,7 +579,7 @@
     const closed = list.filter((p) => CLOSED.has(p.status));
     const hot = list.filter((p) => p.needsAttention);
 
-    $('meta').textContent = `${active.length} em andamento · Grok atualizou ${relative(board.generatedAt)}`;
+    setMeta();
 
     const counts = {};
     for (const p of list) counts[p.status] = (counts[p.status] || 0) + 1;
@@ -622,7 +641,7 @@
   $('scrim').onclick = closeSheets;
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheets(); });
 
-  $('openPaste').onclick = () => { $('report').innerHTML = ''; openSheet('paste'); setTimeout(() => $('json').focus(), 350); };
+  $('openPaste').onclick = () => { $('report').innerHTML = ''; $('keyBox').hidden = !!getKey() && sync.state !== 'bad'; $('keyInput').value = ''; openSheet('paste'); setTimeout(() => $('json').focus(), 350); };
   $('cancelPaste').onclick = closeSheets;
   $('fillExample').onclick = () => { $('json').value = JSON.stringify(EXAMPLE, null, 2); $('report').innerHTML = ''; };
   $('json').addEventListener('input', () => { $('report').innerHTML = ''; });
@@ -633,7 +652,13 @@
   function plain(html) { const d = document.createElement('div'); d.innerHTML = html; return d.textContent; }
 
   let lastErrorsText = '';
-  $('apply').onclick = () => {
+  $('apply').onclick = async () => {
+    const typedKey = $('keyInput').value.trim();
+    if (typedKey) setKey(typedKey);
+    if (!$('json').value.trim() && typedKey) {
+      // Only the key was given: just pull the shared board.
+      closeSheets(); await pull(true); return;
+    }
     const res = validate($('json').value);
     const rep = $('report');
     if (res.parse) {
@@ -650,13 +675,25 @@
       lastErrorsText = 'O JSON do painel de processos tem estes problemas, corrija e mande de novo só o JSON:\n' +
         res.errors.map((e) => `- ${e.path ? e.path + ': ' : ''}${plain(e.msg)}`).join('\n');
     } else {
-      board = res.data;
-      save();
-      closeSheets();
-      render();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      toast(res.warnings.length ? `Atualizado, com ${res.warnings.length} aviso${res.warnings.length > 1 ? 's' : ''}` : 'Dados atualizados ✓');
-      if (res.warnings.length) console.info('Avisos do JSON:', res.warnings.map((w) => `${w.path}: ${plain(w.msg)}`));
+      if (!getKey()) {
+        rep.innerHTML = `<div class="report bad"><h4>Falta a chave de acesso</h4>Sem ela os dados ficam só neste aparelho e não aparecem nos outros aparelhos.
+          <div class="row" style="margin-top:10px"><button class="btn" type="button" id="localOnly">Salvar só neste aparelho</button></div></div>`;
+        $('localOnly').onclick = () => finish(res, 'Salvo só neste aparelho');
+        $('keyInput').focus();
+        return;
+      }
+      const btn = $('apply');
+      btn.disabled = true; btn.textContent = 'Enviando…';
+      const r = await push(res.data);
+      btn.disabled = false; btn.textContent = 'Atualizar';
+      if (!r.ok) {
+        rep.innerHTML = `<div class="report bad"><h4>O JSON está certo, mas não consegui salvar no servidor</h4>${esc(r.error)}
+          <div class="row" style="margin-top:10px"><button class="btn" type="button" id="localOnly">Salvar só neste aparelho</button></div></div>`;
+        $('localOnly').onclick = () => finish(res, 'Salvo só neste aparelho');
+        if (r.status === 401) { $('keyBox').hidden = false; $('keyInput').focus(); }
+        return;
+      }
+      finish(res);
       return;
     }
     const btn = $('copyErr');
@@ -667,6 +704,16 @@
     rep.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
 
+  function finish(res, note) {
+      board = res.data;
+      save();
+      closeSheets();
+      render();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      toast(note || (res.warnings.length ? `Salvo para todos os aparelhos, com ${res.warnings.length} aviso${res.warnings.length > 1 ? 's' : ''}` : 'Salvo para todos os aparelhos ✓'));
+      if (res.warnings.length) console.info('Avisos do JSON:', res.warnings.map((w) => `${w.path}: ${plain(w.msg)}`));
+  }
+
   let toastTimer;
   function toast(text) {
     const t = $('toast');
@@ -676,6 +723,64 @@
 
   // ---------- Storage (only on this phone/browser) ----------
   function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(board)); } catch (_) {} }
+  function getKey() { try { return localStorage.getItem(KEY_KEY) || ''; } catch (_) { return memKey; } }
+  let memKey = '';
+  function setKey(k) { memKey = k; try { localStorage.setItem(KEY_KEY, k); } catch (_) {} }
+
+  // sync: '' | 'busy' | 'ok' | 'bad' (+ message)
+  let sync = { state: '', msg: '' };
+  function setMeta() {
+    const m = $('meta');
+    let text = 'Sem dados ainda';
+    if (board) text = `${board.processes.filter((p) => !CLOSED.has(p.status)).length} em andamento · Grok atualizou ${relative(board.generatedAt)}`;
+    m.innerHTML = esc(text) + (sync.state ? `<br><span class="sync ${sync.state}">${esc(sync.msg)}</span>` : '');
+  }
+
+  async function call(method, body) {
+    try {
+      const r = await fetch(API, {
+        method, cache: 'no-store',
+        headers: { Authorization: 'Bearer ' + getKey(), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      let data = null; try { data = await r.json(); } catch (_) {}
+      if (r.ok) return { ok: true, status: r.status, data };
+      const error = r.status === 401 ? 'A chave de acesso está errada.' : (data && data.error) || `O servidor respondeu ${r.status}.`;
+      return { ok: false, status: r.status, error };
+    } catch (_) {
+      return { ok: false, status: 0, error: 'Sem conexão com o servidor. Confira a internet e tente de novo.' };
+    }
+  }
+  async function push(data) {
+    sync = { state: 'busy', msg: 'Enviando…' }; setMeta();
+    const r = await call('PUT', data);
+    sync = r.ok ? { state: 'ok', msg: 'Sincronizado' } : { state: 'bad', msg: r.error };
+    setMeta();
+    return r;
+  }
+  async function pull(announce) {
+    if (!getKey()) { sync = { state: 'bad', msg: 'Sem chave: mostrando só o que está neste aparelho' }; render(); return; }
+    sync = { state: 'busy', msg: 'Buscando atualizações…' }; setMeta();
+    const r = await call('GET');
+    if (r.ok) {
+      const res = validate(JSON.stringify(r.data));
+      if (res.data) {
+        const changed = !board || JSON.stringify(board) !== JSON.stringify(res.data);
+        board = res.data; save();
+        sync = { state: 'ok', msg: 'Sincronizado' };
+        if (changed) render(); else setMeta();
+        if (announce || changed) toast(changed ? 'Dados novos do Grok ✓' : 'Já está tudo em dia');
+        return;
+      }
+      sync = { state: 'bad', msg: 'O servidor tem dados fora do formato' };
+    } else if (r.status === 404) {
+      sync = { state: 'ok', msg: 'Servidor conectado, ainda sem dados' };
+    } else {
+      sync = { state: 'bad', msg: r.error };
+    }
+    render();
+  }
+
   function load() {
     try {
       const raw = localStorage.getItem(STORE_KEY);
@@ -717,10 +822,16 @@
     }
   })();
 
+  // A link like .../processos/#k=CHAVE saves the key on this device and then hides it from the address bar.
+  const hashKey = new URLSearchParams(location.hash.slice(1)).get('k');
+  if (hashKey) { setKey(hashKey); history.replaceState(null, '', location.pathname + location.search); }
+
   load();
   render();
-  // Keep "há X minutos" fresh.
-  setInterval(() => { if (board && !document.querySelector('.sheet.open')) $('meta').textContent = `${board.processes.filter((p) => !CLOSED.has(p.status)).length} em andamento · Grok atualizou ${relative(board.generatedAt)}`; }, 60000);
+  pull(false);
+  // Fetch again whenever the page comes back to the foreground, and keep "há X minutos" fresh.
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !document.querySelector('.sheet.open')) pull(false); });
+  setInterval(() => { if (!document.querySelector('.sheet.open')) setMeta(); }, 60000);
 </script>
 </body>
 </html>
