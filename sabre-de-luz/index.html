@@ -194,11 +194,9 @@
     if (!ac) return;
     const t = ac.currentTime;
     // dead zone so a steady hand stays silent
-    const s = on ? Math.max(0, (swing - 0.07) / 0.93) : 0;
-    // near-still (hand tremor, slow drift) plays at half volume; real swings at full
-    const k = Math.min(1, Math.max(0, (s - 0.15) / 0.3));
-    const level = 0.5 + 0.5 * k * k * (3 - 2 * k);
-    airGain.gain.setTargetAtTime(Math.pow(s, 1.4) * 1.1 * level, t, 0.025);
+    const s = on ? Math.max(0, (swing - 0.12) / 0.88) : 0;
+    // steep curve: small movements are a whisper, only real swings get loud
+    airGain.gain.setTargetAtTime(Math.pow(s, 2.2) * 1.2, t, 0.025);
     airFilter.frequency.setTargetAtTime(350 + s * 1700, t, 0.03);
     // a fast swing gets its own crisp "fwip"
     const now = performance.now();
@@ -231,7 +229,7 @@
     if (lastOri && e.beta != null) {
       const dt = Math.max(10, now - lastOri.t) / 1000;
       const d = Math.hypot(angDiff(e.alpha, lastOri.al), e.beta - lastOri.b, e.gamma - lastOri.g) / dt; // deg/s
-      pushSwing((d - 25) / 260);
+      pushSwing((d - 70) / 300);
     }
     lastOri = { al: e.alpha || 0, b: e.beta, g: e.gamma, t: now };
     if (!gotMotion && mode !== 'motion') { gotMotion = true; setMode('motion'); }
@@ -246,12 +244,12 @@
       gotMotion = true;
       if (mode !== 'motion') setMode('motion');
       const mag = Math.hypot(r.alpha || 0, r.beta || 0, r.gamma || 0); // deg/s
-      pushSwing((mag - 20) / 240);
+      pushSwing((mag - 60) / 300);
     }
     const a = e.acceleration;
     if (a && a.x != null) {
       const am = Math.hypot(a.x, a.y, a.z);
-      pushSwing((am - 1.5) / 9);
+      pushSwing((am - 4) / 12);
       if (am > 24) clash((am - 24) / 30);
     }
   }
