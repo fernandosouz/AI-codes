@@ -81,6 +81,11 @@
   }
 
   header .back { font-size: 13px; color: var(--muted); text-decoration: none; }
+  header .top { display: flex; justify-content: space-between; align-items: center; }
+  .reload {
+    border: 1px solid var(--line); background: var(--surface); border-radius: 999px; cursor: pointer;
+    padding: 6px 12px; font-size: 13px; font-weight: 700; color: var(--muted);
+  }
   header h1 { margin: 10px 0 2px; font-size: 30px; font-weight: 800; letter-spacing: -0.02em; }
   header .meta { font-size: 13px; color: var(--muted); }
 
@@ -311,7 +316,10 @@
 
 <div class="page">
   <header>
-    <a class="back" href="../">‹ AI codes</a>
+    <div class="top">
+      <a class="back" href="../">‹ AI codes</a>
+      <button class="reload" type="button" id="reload">↻ Recarregar</button>
+    </div>
     <h1>Meus processos</h1>
     <div class="meta" id="meta">Sem dados ainda</div>
     <div class="chips" id="chips"></div>
@@ -782,10 +790,11 @@
       const res = validate(JSON.stringify(r.data));
       if (res.data) {
         const changed = !board || JSON.stringify(board) !== JSON.stringify(res.data);
+        const hadBoard = !!board;
         board = res.data;
         sync = { state: 'ok', msg: 'Sincronizado' };
         if (changed) render(); else setMeta();
-        if (announce || changed) toast(changed ? 'Dados novos do Grok ✓' : 'Já está tudo em dia');
+        if (announce || (changed && hadBoard)) toast(changed ? 'Dados novos do Grok ✓' : 'Já está tudo em dia');
         return;
       }
       sync = { state: 'bad', msg: 'O servidor tem dados fora do formato' };
@@ -838,10 +847,30 @@
   if (hashKey) { setKey(hashKey); history.replaceState(null, '', location.pathname + location.search); }
 
   try { localStorage.removeItem(STORE_KEY); } catch (_) {} // old local-only copy from the first version
+  // ---------- Self-update ----------
+  // Home-screen apps have no address bar to refresh, so the page checks GitHub for a newer copy of
+  // itself and reloads with a fresh ?v= whenever APP_VERSION changed. Bump APP_VERSION on every change.
+  const APP_VERSION = '5';
+  const freshReload = (v) => location.replace(`${location.pathname}?v=${v || Date.now()}`);
+  async function checkForUpdate() {
+    try {
+      const html = await (await fetch(`${location.pathname}?check=${Date.now()}`, { cache: 'no-store' })).text();
+      const m = html.match(/const APP_VERSION = '([^']+)'/);
+      // Guard against a reload loop if the CDN still serves the old page at the new URL.
+      if (m && m[1] !== APP_VERSION && new URLSearchParams(location.search).get('v') !== m[1]) freshReload(m[1]);
+    } catch (_) {}
+  }
+  $('reload').onclick = () => freshReload();
+
   render();
   pull(false);
+  checkForUpdate();
   // Fetch again whenever the page comes back to the foreground, and keep "há X minutos" fresh.
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !document.querySelector('.sheet.open')) pull(false); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || document.querySelector('.sheet.open')) return;
+    pull(false);
+    checkForUpdate();
+  });
   setInterval(() => { if (!document.querySelector('.sheet.open')) setMeta(); }, 60000);
 </script>
 </body>
