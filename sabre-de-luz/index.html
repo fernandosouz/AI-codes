@@ -138,13 +138,14 @@
   function initAudio() {
     if (ac) return;
     ac = new (window.AudioContext || window.webkitAudioContext)();
+    ac.onstatechange = updateStatus;
     const comp = ac.createDynamicsCompressor();
     comp.threshold.value = -30; comp.knee.value = 2; comp.ratio.value = 20;
     comp.attack.value = 0.001; comp.release.value = 0.08;
     // makeup gain pushes everything to the ceiling; a soft clipper keeps it from cracking
     master = ac.createGain(); master.gain.value = 4;
     const ceiling = ac.createWaveShaper(); ceiling.curve = driveCurve(3); ceiling.oversample = '4x';
-    const out = ac.createGain(); out.gain.value = 0.98;
+    const out = ac.createGain(); out.gain.value = 0.9;
     comp.connect(master); master.connect(ceiling); ceiling.connect(out); out.connect(ac.destination);
     const shaper = ac.createWaveShaper(); shaper.curve = driveCurve(18); shaper.oversample = '4x';
     bus = ac.createGain(); bus.gain.value = 1.6;
@@ -314,7 +315,9 @@
       : 'Sem giroscópio aqui: arraste o dedo para mover a lâmina. Toque duas vezes para o choque.';
   }
   function updateStatus() {
+    const muted = on && ac && ac.state !== 'running';
     statusEl.textContent = !on ? 'Desligado'
+      : muted ? 'Som pausado: toque na tela'
       : mode === 'motion' ? 'Giroscópio ativo' : mode === 'touch' ? 'Modo toque' : 'Ligado';
   }
 
@@ -342,10 +345,35 @@
 
   // ---------- controls ----------
   let wakeLock = null;
-  async function toggle() {
-    if (mode === 'none') { mode = 'starting'; startSensors(); }
+  // iOS mutes Web Audio when the ring/silent switch is on. Playing a real
+  // <audio> element (and setting the audio session to "playback") routes the
+  // page to the media channel, which ignores the switch.
+  const unlockEl = new Audio(silentWav());
+  unlockEl.loop = true; unlockEl.setAttribute('playsinline', '');
+  function silentWav() {
+    const rate = 8000, n = rate / 2, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+    const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+    w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    w(36, 'data'); v.setUint32(40, n * 2, true);
+    let bin = ''; const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return 'data:audio/wav;base64,' + btoa(bin);
+  }
+  function unlockAudio() {
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+    unlockEl.play().catch(() => {});
     initAudio();
-    if (ac.state === 'suspended') ac.resume();
+    if (ac.state !== 'running') ac.resume().catch(() => {});
+  }
+  // any later touch revives audio the system paused (permission dialog, call, app switch)
+  ['pointerdown', 'touchend', 'click'].forEach((ev) =>
+    document.addEventListener(ev, () => { if (ac && ac.state !== 'running') unlockAudio(); }, { passive: true }));
+
+  async function toggle() {
+    unlockAudio();
+    if (mode === 'none') { mode = 'starting'; startSensors(); }
     on = !on;
     igniteSound(on);
     if (on && navigator.vibrate) navigator.vibrate(30);
