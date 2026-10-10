@@ -195,7 +195,10 @@
     const t = ac.currentTime;
     // dead zone so a steady hand stays silent
     const s = on ? Math.max(0, (swing - 0.07) / 0.93) : 0;
-    airGain.gain.setTargetAtTime(Math.pow(s, 1.4) * 1.1, t, 0.025);
+    // near-still (hand tremor, slow drift) plays at half volume; real swings at full
+    const k = Math.min(1, Math.max(0, (s - 0.15) / 0.3));
+    const level = 0.5 + 0.5 * k * k * (3 - 2 * k);
+    airGain.gain.setTargetAtTime(Math.pow(s, 1.4) * 1.1 * level, t, 0.025);
     airFilter.frequency.setTargetAtTime(350 + s * 1700, t, 0.03);
     // a fast swing gets its own crisp "fwip"
     const now = performance.now();
