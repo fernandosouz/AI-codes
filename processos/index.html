@@ -372,8 +372,9 @@
 
   const STORE_KEY = 'processos.board.v1';
   const KEY_KEY = 'processos.key';
-  // Shared copy lives in a Netlify function (processos-api/ in this repo), so every device sees the same board.
-  const API = 'https://meus-processos-api.netlify.app/api/board';
+  // Shared copy lives in a private JSONBin bin, so every device sees the same board.
+  // The bin id is not a secret; the access key only travels in the #k= link and stays in each browser.
+  const API = 'https://api.jsonbin.io/v3/b/6aca4d0fac6210605a258d87';
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -736,16 +737,24 @@
     m.innerHTML = esc(text) + (sync.state ? `<br><span class="sync ${sync.state}">${esc(sync.msg)}</span>` : '');
   }
 
+  // JSONBin: GET .../latest returns the stored JSON, PUT replaces it. The key is an Access Key
+  // (Read + Update); a Master Key also works, so on 401 we retry once with that header.
   async function call(method, body) {
+    const url = method === 'GET' ? `${API}/latest` : API;
+    const send = (header) => fetch(url, {
+      method, cache: 'no-store',
+      headers: { [header]: getKey(), 'X-Bin-Meta': 'false', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
     try {
-      const r = await fetch(API, {
-        method, cache: 'no-store',
-        headers: { Authorization: 'Bearer ' + getKey(), ...(body ? { 'Content-Type': 'application/json' } : {}) },
-        body: body ? JSON.stringify(body) : undefined,
-      });
+      let r = await send('X-Access-Key');
+      if (r.status === 401 || r.status === 403) r = await send('X-Master-Key');
       let data = null; try { data = await r.json(); } catch (_) {}
       if (r.ok) return { ok: true, status: r.status, data };
-      const error = r.status === 401 ? 'A chave de acesso está errada.' : (data && data.error) || `O servidor respondeu ${r.status}.`;
+      const error = r.status === 401 || r.status === 403 ? 'A chave de acesso está errada ou não tem permissão de leitura e escrita.'
+        : r.status === 404 ? 'O banco de dados (bin) não foi encontrado.'
+        : r.status === 429 ? 'Limite de uso do JSONBin atingido. Tente mais tarde.'
+        : (data && data.message) || `O servidor respondeu ${r.status}.`;
       return { ok: false, status: r.status, error };
     } catch (_) {
       return { ok: false, status: 0, error: 'Sem conexão com o servidor. Confira a internet e tente de novo.' };
