@@ -568,10 +568,18 @@
     if (!board) {
       setMeta();
       $('chips').innerHTML = '';
-      main.innerHTML = `<div class="empty"><div class="ghost">🫧</div>
-        <p>${getKey() ? 'Nenhum processo por aqui ainda.<br>Toque em <b>Atualizar dados</b> e cole o JSON que o Grok mandou.' : 'Este aparelho ainda não tem a chave de acesso.<br>Abra o link com a chave ou toque em <b>Atualizar dados</b> e cole a chave.'}</p>
-        <button class="btn" type="button" id="demo">Ver com dados de exemplo</button></div>`;
-      $('demo').onclick = () => { $('json').value = JSON.stringify(EXAMPLE, null, 2); openSheet('paste'); };
+      if (sync.state === 'busy' || !sync.state) {
+        main.innerHTML = `<div class="empty"><div class="ghost">🫧</div><p>Buscando os processos no banco de dados…</p></div>`;
+        return;
+      }
+      const msg = sync.state === 'bad'
+        ? (sync.status === 401 || sync.status === 403) && !getKey()
+          ? 'Este aparelho ainda não tem a chave para ler o banco de dados.<br>Abra o link com a chave (<code>#k=…</code>) ou toque em <b>Atualizar dados</b> e cole a chave.'
+          : `Não consegui ler o banco de dados.<br>${esc(sync.msg)}`
+        : 'O banco de dados ainda não tem processos.<br>Peça para o Grok colar o JSON em <b>Atualizar dados</b>.';
+      main.innerHTML = `<div class="empty"><div class="ghost">🫧</div><p>${msg}</p>
+        ${sync.state === 'bad' ? '<button class="btn" type="button" id="retry">Tentar de novo</button>' : ''}</div>`;
+      if ($('retry')) $('retry').onclick = () => pull(true);
       return;
     }
 
@@ -677,10 +685,8 @@
         res.errors.map((e) => `- ${e.path ? e.path + ': ' : ''}${plain(e.msg)}`).join('\n');
     } else {
       if (!getKey()) {
-        rep.innerHTML = `<div class="report bad"><h4>Falta a chave de acesso</h4>Sem ela os dados ficam só neste aparelho e não aparecem nos outros aparelhos.
-          <div class="row" style="margin-top:10px"><button class="btn" type="button" id="localOnly">Salvar só neste aparelho</button></div></div>`;
-        $('localOnly').onclick = () => finish(res, 'Salvo só neste aparelho');
-        $('keyInput').focus();
+        rep.innerHTML = `<div class="report bad"><h4>Falta a chave de acesso</h4>Sem a chave não dá para gravar no banco de dados. Cole a chave no campo acima.</div>`;
+        $('keyBox').hidden = false; $('keyInput').focus();
         return;
       }
       const btn = $('apply');
@@ -688,10 +694,8 @@
       const r = await push(res.data);
       btn.disabled = false; btn.textContent = 'Atualizar';
       if (!r.ok) {
-        rep.innerHTML = `<div class="report bad"><h4>O JSON está certo, mas não consegui salvar no servidor</h4>${esc(r.error)}
-          <div class="row" style="margin-top:10px"><button class="btn" type="button" id="localOnly">Salvar só neste aparelho</button></div></div>`;
-        $('localOnly').onclick = () => finish(res, 'Salvo só neste aparelho');
-        if (r.status === 401) { $('keyBox').hidden = false; $('keyInput').focus(); }
+        rep.innerHTML = `<div class="report bad"><h4>O JSON está certo, mas não consegui gravar no banco de dados</h4>${esc(r.error)} Nada foi alterado.</div>`;
+        if (r.status === 401 || r.status === 403) { $('keyBox').hidden = false; $('keyInput').focus(); }
         return;
       }
       finish(res);
@@ -707,7 +711,6 @@
 
   function finish(res, note) {
       board = res.data;
-      save();
       closeSheets();
       render();
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -722,8 +725,7 @@
     clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
   }
 
-  // ---------- Storage (only on this phone/browser) ----------
-  function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(board)); } catch (_) {} }
+  // ---------- Storage: the board always comes from the database; only the key is kept in the browser ----------
   function getKey() { try { return localStorage.getItem(KEY_KEY) || ''; } catch (_) { return memKey; } }
   let memKey = '';
   function setKey(k) { memKey = k; try { localStorage.setItem(KEY_KEY, k); } catch (_) {} }
@@ -743,12 +745,12 @@
     const url = method === 'GET' ? `${API}/latest` : API;
     const send = (header) => fetch(url, {
       method, cache: 'no-store',
-      headers: { [header]: getKey(), 'X-Bin-Meta': 'false', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { ...(getKey() ? { [header]: getKey() } : {}), 'X-Bin-Meta': 'false', ...(body ? { 'Content-Type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
     try {
       let r = await send('X-Access-Key');
-      if (r.status === 401 || r.status === 403) r = await send('X-Master-Key');
+      if ((r.status === 401 || r.status === 403) && getKey()) r = await send('X-Master-Key');
       let data = null; try { data = await r.json(); } catch (_) {}
       if (r.ok) return { ok: true, status: r.status, data };
       const error = r.status === 401 || r.status === 403 ? 'A chave de acesso está errada ou não tem permissão de leitura e escrita.'
@@ -768,14 +770,13 @@
     return r;
   }
   async function pull(announce) {
-    if (!getKey()) { sync = { state: 'bad', msg: 'Sem chave: mostrando só o que está neste aparelho' }; render(); return; }
-    sync = { state: 'busy', msg: 'Buscando atualizações…' }; setMeta();
+    sync = { state: 'busy', msg: 'Buscando no banco de dados…' }; setMeta();
     const r = await call('GET');
     if (r.ok) {
       const res = validate(JSON.stringify(r.data));
       if (res.data) {
         const changed = !board || JSON.stringify(board) !== JSON.stringify(res.data);
-        board = res.data; save();
+        board = res.data;
         sync = { state: 'ok', msg: 'Sincronizado' };
         if (changed) render(); else setMeta();
         if (announce || changed) toast(changed ? 'Dados novos do Grok ✓' : 'Já está tudo em dia');
@@ -785,19 +786,14 @@
     } else if (r.status === 404) {
       sync = { state: 'ok', msg: 'Servidor conectado, ainda sem dados' };
     } else {
-      sync = { state: 'bad', msg: r.error };
+      // Never fall back to an old copy: the screen shows the database or says why it can't.
+      board = null;
+      const noKey = !getKey() && (r.status === 401 || r.status === 403);
+      sync = { state: 'bad', msg: noKey ? 'Falta a chave de acesso neste aparelho' : r.error, status: r.status };
     }
     render();
   }
 
-  function load() {
-    try {
-      const raw = localStorage.getItem(STORE_KEY);
-      if (!raw) return;
-      const res = validate(raw);
-      if (res.data) board = res.data;
-    } catch (_) {}
-  }
 
   // ---------- Example ----------
   const iso = (days, h = 10, m = 0) => {
@@ -835,7 +831,7 @@
   const hashKey = new URLSearchParams(location.hash.slice(1)).get('k');
   if (hashKey) { setKey(hashKey); history.replaceState(null, '', location.pathname + location.search); }
 
-  load();
+  try { localStorage.removeItem(STORE_KEY); } catch (_) {} // old local-only copy from the first version
   render();
   pull(false);
   // Fetch again whenever the page comes back to the foreground, and keep "há X minutos" fresh.
