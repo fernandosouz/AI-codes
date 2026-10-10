@@ -755,13 +755,15 @@
       if ((r.status === 401 || r.status === 403) && getKey()) r = await send('X-Master-Key');
       let data = null; try { data = await r.json(); } catch (_) {}
       if (r.ok) return { ok: true, status: r.status, data };
-      const error = r.status === 401 || r.status === 403 ? 'A chave de acesso está errada ou não tem permissão de leitura e escrita.'
+      const why = r.status === 401 || r.status === 403 ? 'A chave de acesso está errada ou não tem permissão de leitura e escrita.'
         : r.status === 404 ? 'O banco de dados (bin) não foi encontrado.'
         : r.status === 429 ? 'Limite de uso do JSONBin atingido. Tente mais tarde.'
-        : (data && data.message) || `O servidor respondeu ${r.status}.`;
+        : 'O JSONBin recusou o pedido.';
+      // Raw details help diagnose from a screenshot.
+      const error = `${why} [${method} ${r.status}${data && data.message ? ': ' + data.message : ''}]`;
       return { ok: false, status: r.status, error };
-    } catch (_) {
-      return { ok: false, status: 0, error: 'Sem conexão com o servidor. Confira a internet e tente de novo.' };
+    } catch (e) {
+      return { ok: false, status: 0, error: `Não consegui falar com o JSONBin (internet ou bloqueio do navegador). [${method}: ${e && e.message || e}]` };
     }
   }
   async function push(data) {
