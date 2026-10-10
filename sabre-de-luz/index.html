@@ -119,8 +119,8 @@
   const trail = [];
 
   // ---------- audio ----------
-  // Aggressive voice: detuned saws + sub square through a distortion stage,
-  // a 30 Hz buzz, random crackle (unstable blade), all slammed by a compressor.
+  // Classic voice: two close saws + a soft sub, light saturation, a gentle
+  // flutter and the odd crackle, levelled by a compressor so it stays loud.
   const HUM_BASE = 120;
   let ac, master, bus, humGain, hum1, hum2, hum3, humFilter, swooshGain, swooshFilter,
       buzzDepth, crackleGain, lastSwingHit = 0, prevSwing = 0;
@@ -140,27 +140,27 @@
     ac = new (window.AudioContext || window.webkitAudioContext)();
     ac.onstatechange = updateStatus;
     const comp = ac.createDynamicsCompressor();
-    comp.threshold.value = -30; comp.knee.value = 2; comp.ratio.value = 20;
-    comp.attack.value = 0.001; comp.release.value = 0.08;
+    comp.threshold.value = -24; comp.knee.value = 6; comp.ratio.value = 8;
+    comp.attack.value = 0.003; comp.release.value = 0.15;
     // makeup gain pushes everything to the ceiling; a soft clipper keeps it from cracking
-    master = ac.createGain(); master.gain.value = 4;
+    master = ac.createGain(); master.gain.value = 3;
     const ceiling = ac.createWaveShaper(); ceiling.curve = driveCurve(3); ceiling.oversample = '4x';
     const out = ac.createGain(); out.gain.value = 0.9;
     comp.connect(master); master.connect(ceiling); ceiling.connect(out); out.connect(ac.destination);
-    const shaper = ac.createWaveShaper(); shaper.curve = driveCurve(18); shaper.oversample = '4x';
+    const shaper = ac.createWaveShaper(); shaper.curve = driveCurve(2.5); shaper.oversample = '4x';
     bus = ac.createGain(); bus.gain.value = 1.6;
     bus.connect(shaper); shaper.connect(comp);
 
-    humFilter = ac.createBiquadFilter(); humFilter.type = 'lowpass'; humFilter.frequency.value = 1600; humFilter.Q.value = 6;
+    humFilter = ac.createBiquadFilter(); humFilter.type = 'lowpass'; humFilter.frequency.value = 900; humFilter.Q.value = 1.5;
     humGain = ac.createGain(); humGain.gain.value = 0;
     hum1 = ac.createOscillator(); hum1.type = 'sawtooth'; hum1.frequency.value = HUM_BASE;
-    hum2 = ac.createOscillator(); hum2.type = 'sawtooth'; hum2.frequency.value = HUM_BASE * 1.03;
+    hum2 = ac.createOscillator(); hum2.type = 'sawtooth'; hum2.frequency.value = HUM_BASE * 1.01;
     hum3 = ac.createOscillator(); hum3.type = 'square'; hum3.frequency.value = HUM_BASE / 2;
-    const h3 = ac.createGain(); h3.gain.value = 0.6;
+    const h3 = ac.createGain(); h3.gain.value = 0.3;
     // buzz: a fast LFO chops the hum's amplitude
     const buzzAmp = ac.createGain(); buzzAmp.gain.value = 1;
-    const lfo = ac.createOscillator(); lfo.type = 'square'; lfo.frequency.value = 31;
-    buzzDepth = ac.createGain(); buzzDepth.gain.value = 0.35;
+    const lfo = ac.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 22;
+    buzzDepth = ac.createGain(); buzzDepth.gain.value = 0.08;
     lfo.connect(buzzDepth); buzzDepth.connect(buzzAmp.gain);
     hum1.connect(humFilter); hum2.connect(humFilter); hum3.connect(h3); h3.connect(humFilter);
     humFilter.connect(buzzAmp); buzzAmp.connect(humGain); humGain.connect(bus);
@@ -183,10 +183,10 @@
     o.frequency.setValueAtTime(up ? 30 : 220, t);
     o.frequency.exponentialRampToValueAtTime(up ? 220 : 25, t + (up ? 0.3 : 0.45));
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.9, t + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.6, t + 0.03);
     g.gain.exponentialRampToValueAtTime(0.0001, t + (up ? 0.55 : 0.5));
     o.connect(f); f.connect(g); g.connect(bus); o.start(t); o.stop(t + 0.7);
-    noiseHit(t, 0.5, up ? 400 : 3000, up ? 3500 : 300, 0.45);
+    noiseHit(t, 0.5, up ? 400 : 2000, up ? 2000 : 300, 0.25);
     humGain.gain.setTargetAtTime(up ? 0.55 : 0, t + (up ? 0.1 : 0), 0.08);
     if (!up) crackleGain.gain.setTargetAtTime(0, t, 0.05);
   }
@@ -201,39 +201,39 @@
   // sharp "VWAAH" at the start of each strong swing
   function swingHit(strength) {
     const t = ac.currentTime;
-    noiseHit(t, 0.32, 3200, 450, 0.6 + strength * 0.5);
+    noiseHit(t, 0.35, 1800, 400, 0.35 + strength * 0.3);
     const o = ac.createOscillator(); o.type = 'sawtooth';
     o.frequency.setValueAtTime(HUM_BASE * 2.6, t); o.frequency.exponentialRampToValueAtTime(HUM_BASE * 0.9, t + 0.3);
-    const g = ac.createGain(); g.gain.setValueAtTime(0.5 + strength * 0.4, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
+    const g = ac.createGain(); g.gain.setValueAtTime(0.25 + strength * 0.2, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
     o.connect(g); g.connect(bus); o.start(t); o.stop(t + 0.35);
   }
   function clashSound() {
     const t = ac.currentTime;
-    noiseHit(t, 0.5, 2600, 900, 1.6);
-    noiseHit(t, 0.12, 6000, 4000, 1.2);
-    for (const [type, f0, vol] of [['square', 320, 0.9], ['sawtooth', 190, 0.8]]) {
+    noiseHit(t, 0.45, 2200, 800, 1.0);
+    noiseHit(t, 0.1, 5000, 3500, 0.5);
+    for (const [type, f0, vol] of [['square', 320, 0.5], ['sawtooth', 190, 0.5]]) {
       const o = ac.createOscillator(); o.type = type; o.frequency.setValueAtTime(f0, t);
       o.frequency.exponentialRampToValueAtTime(55, t + 0.28);
       const og = ac.createGain(); og.gain.setValueAtTime(vol, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
       o.connect(og); og.connect(bus); o.start(t); o.stop(t + 0.32);
     }
-    crackleGain.gain.setValueAtTime(0.9, t); crackleGain.gain.setTargetAtTime(0.05, t + 0.05, 0.15);
+    crackleGain.gain.setValueAtTime(0.4, t); crackleGain.gain.setTargetAtTime(0, t + 0.05, 0.1);
   }
   function updateAudio() {
     if (!ac || !on) return;
     const t = ac.currentTime;
     // the "vwoom": pitch, brightness and volume all rise with the swing
-    hum1.frequency.setTargetAtTime(HUM_BASE * (1 + swing * 1.2), t, 0.02);
-    hum2.frequency.setTargetAtTime(HUM_BASE * 1.03 * (1 + swing * 1.25), t, 0.02);
-    hum3.frequency.setTargetAtTime(HUM_BASE / 2 * (1 + swing * 1.1), t, 0.02);
-    humFilter.frequency.setTargetAtTime(1600 + swing * 4500, t, 0.02);
-    humGain.gain.setTargetAtTime(0.55 + swing * 1.2, t, 0.02);
-    buzzDepth.gain.setTargetAtTime(0.35 + swing * 0.3, t, 0.05);
-    swooshGain.gain.setTargetAtTime(swing * 2.2, t, 0.02);
-    swooshFilter.frequency.setTargetAtTime(700 + swing * 2800, t, 0.02);
+    hum1.frequency.setTargetAtTime(HUM_BASE * (1 + swing * 0.6), t, 0.03);
+    hum2.frequency.setTargetAtTime(HUM_BASE * 1.01 * (1 + swing * 0.62), t, 0.03);
+    hum3.frequency.setTargetAtTime(HUM_BASE / 2 * (1 + swing * 0.55), t, 0.03);
+    humFilter.frequency.setTargetAtTime(900 + swing * 2200, t, 0.03);
+    humGain.gain.setTargetAtTime(0.5 + swing * 0.8, t, 0.03);
+    buzzDepth.gain.setTargetAtTime(0.08 + swing * 0.06, t, 0.05);
+    swooshGain.gain.setTargetAtTime(swing * 1.2, t, 0.03);
+    swooshFilter.frequency.setTargetAtTime(500 + swing * 1500, t, 0.03);
     // crackle: random spits, more of them when swinging
-    if (Math.random() < 0.08 + swing * 0.35) {
-      crackleGain.gain.setValueAtTime(0.15 + Math.random() * (0.3 + swing * 0.5), t);
+    if (Math.random() < 0.01 + swing * 0.04) {
+      crackleGain.gain.setValueAtTime(0.04 + Math.random() * 0.08, t);
       crackleGain.gain.setTargetAtTime(0, t + 0.01, 0.02);
     }
     const now = performance.now();
