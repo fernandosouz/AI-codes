@@ -373,7 +373,6 @@
   const STORE_KEY = 'processos.board.v1';
   const KEY_KEY = 'processos.key';
   // Shared copy lives in a private JSONBin bin, so every device sees the same board.
-  // The bin id is not a secret; the access key only travels in the #k= link and stays in each browser.
   const API = 'https://api.jsonbin.io/v3/b/6aca4d0fac6210605a258d87';
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -726,7 +725,10 @@
   }
 
   // ---------- Storage: the board always comes from the database; only the key is kept in the browser ----------
-  function getKey() { try { return localStorage.getItem(KEY_KEY) || ''; } catch (_) { return memKey; } }
+  // Built-in JSONBin access key (Read + Update), so any device works without setup. A key saved
+  // from a #k= link or typed in the paste sheet takes precedence, in case this one is rotated.
+  const DEFAULT_KEY = '$2a$10$JyZ./y3XHKpQSNJC4FvYLu/dhVQI02utQJzahFW7MM6dfU9gWd/SW';
+  function getKey() { try { return localStorage.getItem(KEY_KEY) || memKey || DEFAULT_KEY; } catch (_) { return memKey || DEFAULT_KEY; } }
   let memKey = '';
   function setKey(k) { memKey = k; try { localStorage.setItem(KEY_KEY, k); } catch (_) {} }
 
