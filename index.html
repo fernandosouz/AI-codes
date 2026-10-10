@@ -2,11 +2,120 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>AI codes</title>
-<meta http-equiv="refresh" content="0; url=racha-3d/">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;700&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+  /* Layout: a file-browser window, path bar on top, one row per project folder */
+  :root {
+    --bg: #eef0f4;
+    --window: #ffffff;
+    --bar: #f6f7fa;
+    --line: #dde1e8;
+    --ink: #171a21;
+    --muted: #6a7182;
+    --folder: #f2b84b;
+    --folder-tab: #d99a2b;
+    --hover: #f1f4fa;
+    --ui: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1015; --window: #171a21; --bar: #1d2029; --line: #2a2e3a;
+      --ink: #eceef3; --muted: #8d94a6; --folder: #e9ad3f; --folder-tab: #c48a22; --hover: #20242e;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1015; --window: #171a21; --bar: #1d2029; --line: #2a2e3a;
+    --ink: #eceef3; --muted: #8d94a6; --folder: #e9ad3f; --folder-tab: #c48a22; --hover: #20242e;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: var(--ui);
+    min-height: 100vh;
+    padding: calc(env(safe-area-inset-top, 0px) + 24px) 16px calc(env(safe-area-inset-bottom, 0px) + 24px);
+  }
+  .window {
+    max-width: 720px; margin: 0 auto;
+    background: var(--window); border: 1px solid var(--line); border-radius: 12px;
+    overflow: hidden; box-shadow: 0 12px 40px -20px rgba(20, 24, 40, 0.35);
+  }
+  .titlebar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; background: var(--bar); border-bottom: 1px solid var(--line);
+  }
+  .dots { display: flex; gap: 6px; flex: none; }
+  .dots span { width: 11px; height: 11px; border-radius: 50%; background: var(--line); }
+  .path {
+    font-family: var(--mono); font-size: 13px; color: var(--muted);
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .path b { color: var(--ink); font-weight: 400; }
+  .head {
+    display: grid; grid-template-columns: 1fr auto; gap: 12px;
+    padding: 10px 16px; border-bottom: 1px solid var(--line);
+    font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li + li { border-top: 1px solid var(--line); }
+  a.item {
+    display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 14px;
+    padding: 14px 16px; color: inherit; text-decoration: none;
+  }
+  a.item:hover, a.item:focus-visible { background: var(--hover); outline: none; }
+  a.item:focus-visible { box-shadow: inset 3px 0 0 var(--folder-tab); }
+  .icon { width: 44px; height: 36px; }
+  .text { min-width: 0; }
+  .name { font-weight: 700; font-size: 16px; }
+  .desc { font-size: 13px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+  .chev { color: var(--muted); font-size: 20px; }
+  .foot {
+    padding: 10px 16px; border-top: 1px solid var(--line); background: var(--bar);
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+  }
+</style>
 </head>
-<body style="font-family:system-ui,sans-serif;background:#15171c;color:#f6f3ee;padding:24px">
-<p><a href="racha-3d/" style="color:#ffd400">Abrir o Racha 3D</a></p>
+<body>
+<main class="window">
+  <div class="titlebar">
+    <div class="dots" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div class="path">~/<b>AI codes</b></div>
+  </div>
+  <div class="head"><span>Nome</span><span>Abrir</span></div>
+  <ul id="list"></ul>
+  <div class="foot" id="count"></div>
+</main>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="folder" viewBox="0 0 44 36">
+    <path d="M2 6a3 3 0 0 1 3-3h11l4 4h19a3 3 0 0 1 3 3v2H2z" fill="var(--folder-tab)"/>
+    <rect x="2" y="10" width="40" height="24" rx="3" fill="var(--folder)"/>
+  </symbol>
+</svg>
+
+<script>
+  // Projetos: para adicionar um novo, inclua uma linha aqui.
+  const projects = [
+    { dir: 'racha-3d', name: 'Racha 3D', desc: 'Corrida 3D para celular, contra o computador ou contra outra pessoa pelo QR code.' },
+    { dir: 'rua-morta', name: 'Rua Morta', desc: 'Tiro em primeira pessoa contra zumbis. Mira com o giroscópio e atira tocando na tela.' },
+    { dir: 'sabre-de-luz', name: 'Sabre de Luz', desc: 'Balance o celular e o sabre corta o ar. Golpe seco faz o choque de lâminas.' },
+  ];
+  const list = document.getElementById('list');
+  for (const p of projects) {
+    const li = document.createElement('li');
+    li.innerHTML = `<a class="item" href="${p.dir}/">
+      <svg class="icon" aria-hidden="true"><use href="#folder"/></svg>
+      <div class="text"><div class="name"></div><div class="desc"></div></div>
+      <span class="chev" aria-hidden="true">›</span></a>`;
+    li.querySelector('.name').textContent = p.name;
+    li.querySelector('.desc').textContent = p.desc;
+    list.appendChild(li);
+  }
+  document.getElementById('count').textContent = `${projects.length} pastas`;
+</script>
 </body>
 </html>
