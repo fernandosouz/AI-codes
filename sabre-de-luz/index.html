@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>*{box-sizing:border-box}body{margin:0}</style>
+</head>
+<body>
+<title>Sabre de Luz</title>
+<style>
+  /* Layout: one full-screen canvas, hilt anchored low-center, controls docked at the bottom */
+  :root {
+    --void: #05060a;
+    --panel: rgba(18, 20, 28, 0.82);
+    --line: #2a2e3c;
+    --ink: #e8eaf2;
+    --muted: #8a90a6;
+    --blade: #4cc3ff;
+    --display: "Orbitron", "Eurostile", "Arial Black", sans-serif;
+    --body: "Exo 2", system-ui, sans-serif;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--void);
+    color: var(--ink);
+    font-family: var(--body);
+    overflow: hidden;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #arena { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .hud {
+    position: fixed; left: 0; right: 0; top: 0;
+    padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 0;
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+    pointer-events: none;
+  }
+  .hud h1 {
+    margin: 0; font-family: var(--display); font-weight: 700;
+    font-size: 15px; letter-spacing: 0.22em; text-transform: uppercase;
+  }
+  .hud .status { font-size: 12px; color: var(--muted); letter-spacing: 0.04em; text-align: right; }
+  .dock {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    padding: 14px 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    background: linear-gradient(to top, var(--void) 40%, transparent);
+  }
+  .crystals { display: flex; gap: 14px; }
+  .crystal {
+    width: 30px; height: 30px; border-radius: 50%;
+    border: 2px solid var(--line); background: var(--c);
+    box-shadow: 0 0 10px var(--c); cursor: pointer; padding: 0;
+  }
+  .crystal[aria-pressed="true"] { border-color: var(--ink); transform: scale(1.15); }
+  .crystal:focus-visible, .ignite:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+  .ignite {
+    font-family: var(--display); font-size: 15px; font-weight: 700;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--ink); background: var(--panel);
+    border: 1px solid var(--blade); border-radius: 999px;
+    padding: 14px 34px; min-width: 220px; cursor: pointer;
+    box-shadow: 0 0 18px -4px var(--blade);
+  }
+  .hint { font-size: 12px; color: var(--muted); text-align: center; max-width: 34ch; margin: 0; }
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Exo+2:wght@400;600&display=swap">
+
+<canvas id="arena"></canvas>
+
+<header class="hud">
+  <h1>Sabre de Luz</h1>
+  <div class="status" id="status">Desligado</div>
+</header>
+
+<div class="dock">
+  <div class="crystals" role="group" aria-label="Cor do cristal">
+    <button class="crystal" style="--c:#4cc3ff" data-color="#4cc3ff" aria-label="Azul" aria-pressed="true"></button>
+    <button class="crystal" style="--c:#4dff6a" data-color="#4dff6a" aria-label="Verde" aria-pressed="false"></button>
+    <button class="crystal" style="--c:#ff2a2a" data-color="#ff2a2a" aria-label="Vermelho" aria-pressed="false"></button>
+    <button class="crystal" style="--c:#b45cff" data-color="#b45cff" aria-label="Roxo" aria-pressed="false"></button>
+    <button class="crystal" style="--c:#ffd23f" data-color="#ffd23f" aria-label="Amarelo" aria-pressed="false"></button>
+  </div>
+  <button class="ignite" id="ignite">Acender</button>
+  <p class="hint" id="hint">Acenda e balance o celular. Um golpe seco faz o choque de lâminas.</p>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('arena');
+  const ctx = canvas.getContext('2d');
+  const statusEl = document.getElementById('status');
+  const hintEl = document.getElementById('hint');
+  const igniteBtn = document.getElementById('ignite');
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let W = 0, H = 0, DPR = 1;
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight;
+    canvas.width = W * DPR; canvas.height = H * DPR;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  addEventListener('resize', resize); resize();
+
+  // ---------- state ----------
+  let color = '#4cc3ff';
+  let on = false;
+  let extend = 0;            // 0..1 blade length
+  let angle = 0;             // radians, 0 = straight up
+  let targetAngle = 0;
+  let swing = 0;             // 0..1 swing intensity
+  let flash = 0;             // clash flash 0..1
+  let lastClash = 0;
+  let mode = 'none';         // 'motion' | 'touch'
+  const trail = [];
+
+  // ---------- audio ----------
+  let ac, master, humGain, hum1, hum2, humFilter, swooshGain, swooshFilter;
+  function noiseBuffer(sec) {
+    const b = ac.createBuffer(1, ac.sampleRate * sec, ac.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return b;
+  }
+  function initAudio() {
+    if (ac) return;
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    master = ac.createGain(); master.gain.value = 0.9; master.connect(ac.destination);
+
+    humFilter = ac.createBiquadFilter(); humFilter.type = 'lowpass'; humFilter.frequency.value = 380;
+    humGain = ac.createGain(); humGain.gain.value = 0;
+    hum1 = ac.createOscillator(); hum1.type = 'sawtooth'; hum1.frequency.value = 90;
+    hum2 = ac.createOscillator(); hum2.type = 'sawtooth'; hum2.frequency.value = 92.5;
+    hum1.connect(humFilter); hum2.connect(humFilter); humFilter.connect(humGain); humGain.connect(master);
+    hum1.start(); hum2.start();
+
+    const n = ac.createBufferSource(); n.buffer = noiseBuffer(2); n.loop = true;
+    swooshFilter = ac.createBiquadFilter(); swooshFilter.type = 'bandpass'; swooshFilter.frequency.value = 600; swooshFilter.Q.value = 1.2;
+    swooshGain = ac.createGain(); swooshGain.gain.value = 0;
+    n.connect(swooshFilter); swooshFilter.connect(swooshGain); swooshGain.connect(master); n.start();
+  }
+  function igniteSound(up) {
+    const t = ac.currentTime;
+    const o = ac.createOscillator(); o.type = 'sawtooth';
+    const g = ac.createGain(); const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1400;
+    o.frequency.setValueAtTime(up ? 40 : 140, t);
+    o.frequency.exponentialRampToValueAtTime(up ? 140 : 30, t + (up ? 0.35 : 0.45));
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.35, t + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + (up ? 0.6 : 0.5));
+    o.connect(f); f.connect(g); g.connect(master); o.start(t); o.stop(t + 0.7);
+    humGain.gain.setTargetAtTime(up ? 0.16 : 0, t + (up ? 0.15 : 0), 0.12);
+  }
+  function clashSound() {
+    const t = ac.currentTime;
+    const s = ac.createBufferSource(); s.buffer = noiseBuffer(0.4);
+    const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1800; f.Q.value = 0.8;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.9, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    s.connect(f); f.connect(g); g.connect(master); s.start(t);
+    const o = ac.createOscillator(); o.type = 'square'; o.frequency.setValueAtTime(260, t);
+    o.frequency.exponentialRampToValueAtTime(70, t + 0.2);
+    const og = ac.createGain(); og.gain.setValueAtTime(0.25, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    o.connect(og); og.connect(master); o.start(t); o.stop(t + 0.25);
+  }
+  function updateAudio() {
+    if (!ac || !on) return;
+    const t = ac.currentTime;
+    hum1.frequency.setTargetAtTime(90 + swing * 40, t, 0.05);
+    hum2.frequency.setTargetAtTime(92.5 + swing * 46, t, 0.05);
+    humFilter.frequency.setTargetAtTime(380 + swing * 900, t, 0.05);
+    humGain.gain.setTargetAtTime(0.16 + swing * 0.18, t, 0.05);
+    swooshGain.gain.setTargetAtTime(swing * swing * 0.7, t, 0.04);
+    swooshFilter.frequency.setTargetAtTime(500 + swing * 1500, t, 0.05);
+  }
+
+  function clash(strength) {
+    const now = performance.now();
+    if (!on || extend < 0.9 || now - lastClash < 350) return;
+    lastClash = now;
+    flash = Math.min(1, 0.6 + strength);
+    if (ac) clashSound();
+    if (navigator.vibrate) navigator.vibrate([40, 20, 60]);
+  }
+
+  // ---------- sensors ----------
+  function onOrientation(e) {
+    if (e.gamma == null) return;
+    // gamma: left/right tilt (-90..90). Lean the blade with the phone.
+    let g = e.gamma;
+    // when the phone is held upright (beta > 90) gamma flips; keep it continuous
+    if (e.beta != null && Math.abs(e.beta) > 90) g = -g;
+    targetAngle = Math.max(-1.45, Math.min(1.45, g * Math.PI / 180 * 1.2));
+  }
+  let gotMotion = false;
+  function onMotion(e) {
+    const r = e.rotationRate;
+    if (r && (r.alpha != null || r.beta != null)) {
+      gotMotion = true;
+      if (mode !== 'motion') setMode('motion');
+      const mag = Math.hypot(r.alpha || 0, r.beta || 0, r.gamma || 0); // deg/s
+      const s = Math.min(1, Math.max(0, (mag - 40) / 420));
+      swing = Math.max(swing * 0.85, s);
+    }
+    const a = e.acceleration;
+    if (a && a.x != null) {
+      const am = Math.hypot(a.x, a.y, a.z);
+      if (am > 24) clash((am - 24) / 30);
+    }
+  }
+  async function startSensors() {
+    try {
+      if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+        const p = await DeviceMotionEvent.requestPermission();
+        if (p !== 'granted') throw new Error('negado');
+        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+          await DeviceOrientationEvent.requestPermission().catch(() => {});
+        }
+      }
+      addEventListener('devicemotion', onMotion);
+      addEventListener('deviceorientation', onOrientation);
+    } catch (_) { /* fall through to touch */ }
+    setTimeout(() => { if (!gotMotion) setMode('touch'); }, 1200);
+  }
+
+  function setMode(m) {
+    mode = m;
+    updateStatus();
+    hintEl.textContent = m === 'motion'
+      ? 'Balance o celular. Um golpe seco faz o choque de lâminas.'
+      : 'Sem giroscópio aqui: arraste o dedo para mover a lâmina. Toque duas vezes para o choque.';
+  }
+  function updateStatus() {
+    statusEl.textContent = !on ? 'Desligado'
+      : mode === 'motion' ? 'Giroscópio ativo' : mode === 'touch' ? 'Modo toque' : 'Ligado';
+  }
+
+  // ---------- touch fallback ----------
+  let lastPointer = null;
+  canvas.addEventListener('pointermove', (e) => {
+    if (mode !== 'touch' || (e.pointerType !== 'mouse' && e.pressure === 0)) return;
+    const hx = W / 2, hy = H * 0.72;
+    const a = Math.atan2(e.clientX - hx, hy - e.clientY);
+    targetAngle = Math.max(-1.45, Math.min(1.45, a));
+    const now = performance.now();
+    if (lastPointer) {
+      const dt = Math.max(8, now - lastPointer.t);
+      const v = Math.abs(a - lastPointer.a) / dt * 1000; // rad/s
+      swing = Math.max(swing, Math.min(1, v / 9));
+    }
+    lastPointer = { a, t: now };
+  });
+  let lastTap = 0;
+  canvas.addEventListener('pointerdown', () => {
+    const now = performance.now();
+    if (mode === 'touch' && now - lastTap < 300) clash(0.4);
+    lastTap = now; lastPointer = null;
+  });
+
+  // ---------- controls ----------
+  let wakeLock = null;
+  async function toggle() {
+    initAudio();
+    if (ac.state === 'suspended') await ac.resume();
+    if (mode === 'none') startSensors();
+    on = !on;
+    igniteSound(on);
+    if (on && navigator.vibrate) navigator.vibrate(30);
+    igniteBtn.textContent = on ? 'Apagar' : 'Acender';
+    updateStatus();
+    try {
+      if (on && navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen');
+      else if (!on && wakeLock) { wakeLock.release(); wakeLock = null; }
+    } catch (_) {}
+  }
+  igniteBtn.addEventListener('click', toggle);
+
+  document.querySelectorAll('.crystal').forEach((b) => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.crystal').forEach((x) => x.setAttribute('aria-pressed', 'false'));
+      b.setAttribute('aria-pressed', 'true');
+      color = b.dataset.color;
+      document.documentElement.style.setProperty('--blade', color);
+    });
+  });
+
+  // ---------- render ----------
+  function drawHilt(hx, hy) {
+    ctx.save();
+    ctx.translate(hx, hy); ctx.rotate(angle);
+    const w = 22, h = 120;
+    const grad = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
+    grad.addColorStop(0, '#3a3d46'); grad.addColorStop(0.45, '#c9ccd4'); grad.addColorStop(1, '#2b2d34');
+    ctx.fillStyle = grad;
+    ctx.fillRect(-w / 2, 0, w, h);
+    ctx.fillStyle = '#16171c';
+    for (let i = 0; i < 6; i++) ctx.fillRect(-w / 2, 34 + i * 12, w, 5);
+    ctx.fillStyle = '#8b8f99'; ctx.fillRect(-w / 2 - 3, -6, w + 6, 10);
+    ctx.fillStyle = on ? color : '#5a2020'; ctx.fillRect(w / 2 - 2, 14, 4, 10);
+    ctx.restore();
+  }
+  function bladeTip(hx, hy, a, len) {
+    return [hx + Math.sin(a) * len, hy - Math.cos(a) * len];
+  }
+  function frame(now) {
+    const target = on ? 1 : 0;
+    extend += (target - extend) * (on ? 0.16 : 0.12);
+    if (Math.abs(target - extend) < 0.002) extend = target;
+
+    angle += (targetAngle - angle) * 0.35;
+    swing *= 0.92;
+    flash *= 0.86;
+    updateAudio();
+
+    const hx = W / 2, hy = H * 0.72;
+    const len = Math.min(H * 0.62, 520) * extend;
+    const jitter = on ? (Math.random() - 0.5) * 0.04 : 0;
+
+    trail.push({ a: angle, t: now });
+    while (trail.length && now - trail[0].t > 140) trail.shift();
+
+    ctx.fillStyle = '#05060a';
+    ctx.fillRect(0, 0, W, H);
+
+    if (extend > 0.01) {
+      // ambient glow on the "floor"
+      const glow = ctx.createRadialGradient(hx, hy - len / 2, 0, hx, hy - len / 2, Math.max(W, H) * 0.7);
+      glow.addColorStop(0, hexA(color, 0.18 * extend + flash * 0.25));
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+
+      // swing trail
+      if (!reduceMotion && trail.length > 2 && swing > 0.08) {
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = 1; i < trail.length; i++) {
+          const p = trail[i - 1], q = trail[i];
+          const al = (i / trail.length) * 0.22 * Math.min(1, swing * 1.6);
+          const [x1, y1] = bladeTip(hx, hy, p.a, len);
+          const [x2, y2] = bladeTip(hx, hy, q.a, len);
+          ctx.fillStyle = hexA(color, al);
+          ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(x1, y1); ctx.lineTo(x2, y2); ctx.closePath(); ctx.fill();
+        }
+        ctx.globalCompositeOperation = 'source-over';
+      }
+
+      // blade
+      const [tx, ty] = bladeTip(hx, hy, angle, len);
+      ctx.lineCap = 'round';
+      ctx.globalCompositeOperation = 'lighter';
+      const layers = [
+        [40 + flash * 30, 0.10],
+        [24, 0.22],
+        [13, 0.55],
+      ];
+      for (const [wdt, al] of layers) {
+        ctx.strokeStyle = hexA(color, al + jitter);
+        ctx.lineWidth = wdt;
+        ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = flash > 0.3 ? '#ffffff' : mix(color, '#ffffff', 0.82);
+      ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
+
+      if (flash > 0.05) {
+        ctx.fillStyle = `rgba(255,255,255,${flash * 0.35})`;
+        ctx.fillRect(0, 0, W, H);
+        // spark at the tip
+        ctx.fillStyle = `rgba(255,240,200,${flash})`;
+        for (let i = 0; i < 10; i++) {
+          const r = Math.random() * 40 * flash;
+          const th = Math.random() * Math.PI * 2;
+          ctx.fillRect(tx + Math.cos(th) * r, ty + Math.sin(th) * r, 3, 3);
+        }
+      }
+    }
+
+    drawHilt(hx, hy);
+    requestAnimationFrame(frame);
+  }
+
+  function hexToRgb(h) {
+    const n = parseInt(h.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function hexA(h, a) { const [r, g, b] = hexToRgb(h); return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, a))})`; }
+  function mix(h1, h2, t) {
+    const a = hexToRgb(h1), b = hexToRgb(h2);
+    return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(',')})`;
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
