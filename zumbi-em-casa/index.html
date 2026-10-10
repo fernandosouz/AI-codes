@@ -120,6 +120,8 @@ ol b{color:var(--ink)}
 .grid div{border-top:1px solid var(--line);padding-top:6px}
 .grid b{display:block;font-family:var(--display);font-size:32px;font-variant-numeric:tabular-nums}
 .err{color:#ff8a7a!important}
+#rotate{z-index:9;flex-direction:column;gap:10px;text-align:center;font-size:20px;font-weight:700;background:#050807f7}
+#rotate svg{width:80px;height:80px}
 input[type=range]{width:min(320px,100%);accent-color:var(--amber)}
 @media (max-height:460px){ .card{gap:9px} .card p,ol{font-size:15px} h1{font-size:54px} .go{padding:11px 22px} #scanBot{flex-direction:row;justify-content:center;flex-wrap:wrap} #meter{width:200px} }
 @media (prefers-reduced-motion:reduce){ #pop,#hit,.bar i{transition:none} }
@@ -199,7 +201,7 @@ input[type=range]{width:min(320px,100%);accent-color:var(--amber)}
     <h1>ZUMBI <span>EM CASA</span></h1>
     <p>Realidade aumentada: o jogo olha o cômodo pela câmera e os zumbis <b>saem de trás dos seus móveis</b>, das portas e do chão.</p>
     <ol>
-      <li><b>Libere câmera e movimento</b> quando o celular pedir.</li>
+      <li><b>Segure o celular na horizontal</b> e libere câmera e movimento quando ele pedir.</li>
       <li><b>Escaneie o cômodo</b>: aponte para o meio e gire devagar uns 75° para cada lado.</li>
       <li><b>Mire mexendo o celular</b> (a mira fica no centro) e <b>toque na tela para atirar</b>.</li>
     </ol>
@@ -247,6 +249,11 @@ input[type=range]{width:min(320px,100%);accent-color:var(--amber)}
     <p id="oBest"></p>
     <div class="row"><button class="btn go" id="againBtn">Jogar de novo</button><button class="btn" id="overRescanBtn">Escanear outro cômodo</button></div>
   </div>
+</div>
+
+<div class="screen" id="rotate" hidden>
+  <svg viewBox="0 0 80 80" fill="none" stroke="#ece6da" stroke-width="4" stroke-linecap="round"><rect x="26" y="8" width="28" height="48" rx="4"/><path d="M14 66c10 8 42 8 52 0M60 60l6 6-8 3"/></svg>
+  Gire o celular para a horizontal
 </div>
 
 <div class="hud" id="toast" style="opacity:0"></div>
@@ -314,6 +321,13 @@ function onResize(){
   const f=(Math.max(dw,dh)/2)/Math.tan(LONG_FOV*fovMul*D2R/2);
   camera.fov=2*Math.atan((H/2)/f)/D2R;camera.aspect=W/H;camera.updateProjectionMatrix();
   vm={s,ox:(dw-W)/2,oy:(dh-H)/2};
+  checkRotate();
+}
+// the game is played in landscape only
+let rotateBlock=false;
+function checkRotate(){
+  rotateBlock=innerHeight>innerWidth&&typeof state!=='undefined'&&state!=='start';
+  const el=document.getElementById('rotate');if(el)el.hidden=!rotateBlock;
 }
 addEventListener('resize',onResize);
 if(screen.orientation&&screen.orientation.addEventListener)screen.orientation.addEventListener('change',()=>setTimeout(onResize,200));
@@ -852,7 +866,7 @@ function reload(){
 }
 const ray=new THREE.Raycaster(),ndc=new THREE.Vector2();
 function shoot(){
-  if(state!=='play')return;
+  if(state!=='play'||rotateBlock)return;
   const now=performance.now();
   if(reloading||now<nextShot)return;
   if(weapon.ammo<=0){sfx.empty();reload();return;}
@@ -888,7 +902,7 @@ function shoot(){
 }
 
 /* ---------- game ---------- */
-let state='start';
+var state='start';
 const G={
   wave:0,hp:100,score:0,kills:0,heads:0,shots:0,hits:0,toSpawn:0,spawnT:0,maxAlive:2,between:0,
   reset(){Object.assign(this,{wave:0,hp:100,score:0,kills:0,heads:0,shots:0,hits:0,toSpawn:0,spawnT:0,between:0});},
@@ -1002,10 +1016,15 @@ document.querySelectorAll('[data-h]').forEach(b=>b.addEventListener('click',()=>
 setPosture(camH>1.2?1.4:1.0);
 const best=store.get('best',0);if(best)$('bestTxt').textContent='Recorde: '+best;
 
+async function goLandscape(){
+  try{const el=document.documentElement;if(!document.fullscreenElement&&el.requestFullscreen)await el.requestFullscreen({navigationUI:'hide'});}catch(e){}
+  try{if(screen.orientation&&screen.orientation.lock)await screen.orientation.lock('landscape');}catch(e){}
+}
 async function begin(){
   initAudio();if(ac&&ac.state==='suspended')ac.resume();
   const motion=askMotion();
   $('startErr').hidden=true;
+  goLandscape();
   try{
     if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('nocam');
     await startCamera();
@@ -1022,7 +1041,7 @@ async function begin(){
   enterScan();
 }
 function enterScan(){
-  state='scan';scanning=false;
+  state='scan';checkRotate();scanning=false;
   zombies.forEach(z=>z.dispose());zombies=[];
   bins.fill(0);objects=[];edges=[];rebuildMarkers();
   occluders.forEach(o=>scene.remove(o));occluders=[];spots=[];
@@ -1111,15 +1130,15 @@ function loop(t){
   requestAnimationFrame(loop);
   const dt=Math.min(0.05,(t-last)/1000);last=t;
   updateCamera();
-  if(state==='scan')scanTick(dt);
-  if(state==='play')gameTick(dt);
+  if(state==='scan'&&!rotateBlock)scanTick(dt);
+  if(state==='play'&&!rotateBlock)gameTick(dt);
   if(state==='play'||state==='scan'){
     lumT-=dt;
     if(lumT<=0&&state==='play'){lumT=1.5;const S=sampleVideo(48);if(S)lightLevel=S.lum;}
     const L=clamp(lightLevel,0.08,0.9);
     hemi.intensity+=((0.35+L*1.1)-hemi.intensity)*0.05;sun.intensity=hemi.intensity*0.6;
   }
-  if(state!=='pause')updateParts(dt);
+  if(state!=='pause'&&!rotateBlock)updateParts(dt);
   renderer.render(scene,camera);
   drawOverlay();
 }
