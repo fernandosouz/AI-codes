@@ -139,12 +139,15 @@
     if (ac) return;
     ac = new (window.AudioContext || window.webkitAudioContext)();
     const comp = ac.createDynamicsCompressor();
-    comp.threshold.value = -20; comp.knee.value = 4; comp.ratio.value = 12;
-    comp.attack.value = 0.002; comp.release.value = 0.12;
-    master = ac.createGain(); master.gain.value = 1.4;
-    comp.connect(master); master.connect(ac.destination);
+    comp.threshold.value = -30; comp.knee.value = 2; comp.ratio.value = 20;
+    comp.attack.value = 0.001; comp.release.value = 0.08;
+    // makeup gain pushes everything to the ceiling; a soft clipper keeps it from cracking
+    master = ac.createGain(); master.gain.value = 4;
+    const ceiling = ac.createWaveShaper(); ceiling.curve = driveCurve(3); ceiling.oversample = '4x';
+    const out = ac.createGain(); out.gain.value = 0.98;
+    comp.connect(master); master.connect(ceiling); ceiling.connect(out); out.connect(ac.destination);
     const shaper = ac.createWaveShaper(); shaper.curve = driveCurve(18); shaper.oversample = '4x';
-    bus = ac.createGain(); bus.gain.value = 1;
+    bus = ac.createGain(); bus.gain.value = 1.6;
     bus.connect(shaper); shaper.connect(comp);
 
     humFilter = ac.createBiquadFilter(); humFilter.type = 'lowpass'; humFilter.frequency.value = 1600; humFilter.Q.value = 6;
@@ -183,7 +186,7 @@
     g.gain.exponentialRampToValueAtTime(0.0001, t + (up ? 0.55 : 0.5));
     o.connect(f); f.connect(g); g.connect(bus); o.start(t); o.stop(t + 0.7);
     noiseHit(t, 0.5, up ? 400 : 3000, up ? 3500 : 300, 0.45);
-    humGain.gain.setTargetAtTime(up ? 0.3 : 0, t + (up ? 0.1 : 0), 0.08);
+    humGain.gain.setTargetAtTime(up ? 0.55 : 0, t + (up ? 0.1 : 0), 0.08);
     if (!up) crackleGain.gain.setTargetAtTime(0, t, 0.05);
   }
   function noiseHit(t, dur, f0, f1, vol) {
@@ -223,7 +226,7 @@
     hum2.frequency.setTargetAtTime(HUM_BASE * 1.03 * (1 + swing * 1.25), t, 0.02);
     hum3.frequency.setTargetAtTime(HUM_BASE / 2 * (1 + swing * 1.1), t, 0.02);
     humFilter.frequency.setTargetAtTime(1600 + swing * 4500, t, 0.02);
-    humGain.gain.setTargetAtTime(0.3 + swing * 0.9, t, 0.02);
+    humGain.gain.setTargetAtTime(0.55 + swing * 1.2, t, 0.02);
     buzzDepth.gain.setTargetAtTime(0.35 + swing * 0.3, t, 0.05);
     swooshGain.gain.setTargetAtTime(swing * 2.2, t, 0.02);
     swooshFilter.frequency.setTargetAtTime(700 + swing * 2800, t, 0.02);
